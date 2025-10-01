@@ -1,0 +1,4 @@
+/target
+result*
+obsidian.db
+*.wal

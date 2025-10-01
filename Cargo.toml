@@ -1,0 +1,20 @@
+[package]
+name = "obsidian-db"
+version = "0.1.0"
+edition = "2024"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.100"
+async-trait = "0.1.89"
+comrak = "0.42.0"
+notify = "8.2.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_norway = "0.9.42"
+sqlx = { version = "0.8.6", features = [
+    "runtime-tokio",
+    "tls-rustls-aws-lc-rs",
+    "sqlite",
+] }
+tokio = { version = "1.47.1", features = ["full"] }
