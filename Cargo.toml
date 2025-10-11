@@ -7,6 +7,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.100"
+ciborium = "0.2.2"
 clap = { version = "4.5", features = ["derive"] }
 comrak = "0.43"
 env_logger = "0.11"

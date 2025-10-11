@@ -8,6 +8,11 @@ pub struct FileEntry {
     pub metadata: Metadata,
 }
 
+// TODO: Figure out if we can turn this into an iter instead so we don't have to allocate a big Vec
+// of all entries before processing them
+
+/// Read a directory from disk, returning a list of all files found. If recurse is true, this will
+/// recurse into subdirectories as well.
 pub fn read_dir(path: impl AsRef<Path>, recurse: bool) -> Result<Vec<FileEntry>> {
     let mut entries = vec![];
     for entry in std::fs::read_dir(path)? {
