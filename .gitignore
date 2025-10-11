@@ -1,4 +1,4 @@
 /target
 result*
-obsidian.db
-*.wal
+.DS_Store
+
