@@ -1,17 +1,14 @@
-[package]
-name = "obsidian-db"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = ["crates/*", "bins/*"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
+[workspace.dependencies]
 anyhow = "1.0.100"
 ciborium = "0.2.2"
 clap = { version = "4.5", features = ["derive"] }
 comrak = "0.43"
 env_logger = "0.11"
 log = "0.4"
+obsidian-core = { path = "crates/core" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1"
 serde_norway = "0.9.42"

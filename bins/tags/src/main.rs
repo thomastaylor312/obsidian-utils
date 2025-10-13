@@ -5,10 +5,7 @@ use comrak::Arena;
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
-pub mod frontmatter;
-pub mod parser;
-pub mod printer;
-pub mod reader;
+use obsidian_core::{frontmatter, parser, printer, reader};
 
 #[derive(Parser, Debug)]
 #[command(name = "obsidian-tags", about, long_about = None)]

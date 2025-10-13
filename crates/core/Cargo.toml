@@ -1,0 +1,16 @@
+[package]
+name = "obsidian-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = { workspace = true }
+ciborium = { workspace = true }
+clap = { workspace = true }
+comrak = { workspace = true }
+env_logger = { workspace = true }
+log = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_norway = { workspace = true }
+tabled = { workspace = true }
