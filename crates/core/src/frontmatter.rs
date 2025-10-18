@@ -26,7 +26,7 @@ pub struct Frontmatter {
 }
 
 /// Parse the frontmatter from a list of ParsedFiles, returning an iterator of tuples of the
-/// [`ParsedFile`] returned as it and an optional [serde_norway::Value] representing the frontmatter
+/// [`ParsedFile`] returned as is and an optional [serde_norway::Value] representing the frontmatter
 /// if it exists
 pub fn parse_frontmatter<'a>(
     entries: impl IntoIterator<Item = ParsedFile<'a>>,

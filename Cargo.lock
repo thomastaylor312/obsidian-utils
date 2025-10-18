@@ -556,6 +556,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "obsidian-links"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "comrak",
+ "log",
+ "obsidian-core",
+ "serde",
+ "serde_json",
+ "tabled",
+]
+
+[[package]]
 name = "obsidian-tags"
 version = "0.1.0"
 dependencies = [

@@ -79,7 +79,9 @@ fn main() -> anyhow::Result<()> {
         acc
     });
 
-    cli.printer
-        .format
-        .print(&Tags(tags), &mut std::io::stdout())
+    cli.printer.format.print(
+        obsidian_core::TAGS_DATA_KEY,
+        &Tags(tags),
+        &mut std::io::stdout(),
+    )
 }

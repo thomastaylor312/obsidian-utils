@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::{collections::HashMap, io::Write};
 
 use anyhow::Context;
 use clap::Args;
@@ -65,12 +65,16 @@ impl Format {
     /// Print the given data in the specified format to the given writer. The data must implement
     /// both `Serialize` and `IntoTabled` traits. This may change in the future if we need more
     /// flexibility (i.e. different types for different formats implementing only one of the
-    /// traits).
+    /// traits). The `data_key` parameter is used as the top level key of the outputted object. It
+    /// essentially serves as a "namespace" for the data being output so it can be combined down the
+    /// line (e.g. `{"tags": {...}, "links": {...}}`).
     pub fn print<S: Serialize + AsTabled, W: Write>(
         &self,
+        data_key: &str,
         data: &S,
         writer: &mut W,
     ) -> anyhow::Result<()> {
+        let keyed_data = HashMap::from([(data_key, data)]);
         match self {
             Format::Table => {
                 let mut table = tabled::Table::new(data.as_tabled());
@@ -78,10 +82,10 @@ impl Format {
                 writeln!(writer, "{table}").context("Error writing table data")
             }
             Format::Json => {
-                serde_json::to_writer(writer, data).context("JSON serialization failed")
+                serde_json::to_writer(writer, &keyed_data).context("JSON serialization failed")
             }
             Format::Binary => {
-                ciborium::into_writer(data, writer).context("CBOR serialization failed")
+                ciborium::into_writer(&keyed_data, writer).context("CBOR serialization failed")
             }
         }
     }
