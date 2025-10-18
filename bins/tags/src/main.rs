@@ -5,54 +5,33 @@ use comrak::Arena;
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
-use obsidian_core::{frontmatter, parser, printer, reader};
+use obsidian_core::{
+    frontmatter, parser,
+    printer::{self, HashMapTabler},
+    reader,
+};
 
 #[derive(Parser, Debug)]
 #[command(name = "obsidian-tags", about, long_about = None)]
 pub struct Cli {
-    /// Whether to recurse into subdirectories when reading the vault. Defaults to true
-    #[arg(long, default_value_t = true)]
-    pub recurse: bool,
-
     #[command(flatten)]
     pub printer: printer::PrinterArgs,
 
-    /// The directory containing the vault to operate on
-    // TODO: Make this optional once we support a list of files from stdin
-    pub vault_dir: PathBuf,
+    #[command(flatten)]
+    pub read_opts: reader::ReaderOpts,
 }
 
 // A struct tying data to a tag. Right now this is really simple, but may be expanded in the future
 #[derive(Debug, Serialize, Deserialize, Default, Tabled)]
 pub struct TagInfo {
-    /// The name of the tag
-    // Ignored in serde output as it's redundant with the key in the map
-    #[serde(skip)]
-    #[tabled(rename = "Tag")]
-    pub tag: String,
-
     /// The files associated with this tag
     #[tabled(format("{}", self.files.len()), rename = "File Count")]
     pub files: Vec<PathBuf>,
 }
 
 impl TagInfo {
-    pub fn new(tag: String) -> Self {
-        Self {
-            tag,
-            files: Vec::new(),
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct Tags(HashMap<String, TagInfo>);
-
-impl printer::AsTabled for Tags {
-    type Table = TagInfo;
-
-    fn as_tabled(&self) -> impl IntoIterator<Item = &Self::Table> {
-        self.0.values()
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -60,7 +39,7 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     env_logger::init();
 
-    let entries = reader::read_dir(&cli.vault_dir, cli.recurse)?;
+    let entries = cli.read_opts.read_dir()?;
 
     let arena = Arena::with_capacity(entries.len());
     let parsed_files = parser::ignore_error_iter(parser::parse_files(&arena, entries));
@@ -69,10 +48,10 @@ fn main() -> anyhow::Result<()> {
     let tags = parsed_with_fm.fold(HashMap::new(), |mut acc, (pf, fm)| {
         if let Some(fm) = fm {
             for tag in fm.tags.unwrap_or_default() {
-                // We duplicate tag names here to make it easier for table formatting the data with the proper name
-                acc.entry(tag.clone())
-                    .or_insert_with(|| TagInfo::new(tag))
+                acc.entry(tag)
+                    .or_insert_with(TagInfo::new)
                     .files
+                    // Have to clone because pf has a lifetime
                     .push(pf.path.clone());
             }
         }
@@ -81,7 +60,7 @@ fn main() -> anyhow::Result<()> {
 
     cli.printer.format.print(
         obsidian_core::TAGS_DATA_KEY,
-        &Tags(tags),
+        HashMapTabler::new("Tag", tags),
         &mut std::io::stdout(),
     )
 }

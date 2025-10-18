@@ -1,11 +1,12 @@
 [workspace]
 members = ["crates/*", "bins/*"]
+resolver = "3"
 
 [workspace.dependencies]
 anyhow = "1.0.100"
 ciborium = "0.2.2"
 clap = { version = "4.5", features = ["derive"] }
-comrak = "0.43"
+comrak = "0.44"
 env_logger = "0.11"
 log = "0.4"
 obsidian-core = { path = "crates/core" }

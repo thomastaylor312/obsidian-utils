@@ -1,10 +1,10 @@
 [package]
-name = "tags"
+name = "links"
 version = "0.1.0"
 edition = "2024"
 
 [[bin]]
-name = "obsidian-tags"
+name = "obsidian-links"
 path = "src/main.rs"
 
 [dependencies]
@@ -15,5 +15,6 @@ comrak = { workspace = true }
 env_logger = { workspace = true }
 log = { workspace = true }
 obsidian-core = { workspace = true }
+obsidian-links = { workspace = true }
 serde = { workspace = true }
 tabled = { workspace = true }
