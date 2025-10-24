@@ -5,10 +5,7 @@ use std::{
 };
 
 use obsidian_core::printer::{HashMapTabler, IntoTable};
-use serde::{
-    Deserialize, Serialize,
-    de::{MapAccess, Visitor},
-};
+use serde::{Deserialize, Serialize};
 use tabled::{Tabled, derive::display};
 
 pub mod parser;
@@ -26,11 +23,10 @@ pub struct FileLinks {
     pub links: HashSet<PathBuf>,
     /// All backlinks found in other files pointing to this file
     #[tabled(display("display::debug"))]
-    #[serde(skip)]
     pub backlinks: HashSet<PathBuf>,
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Links(HashMap<PathBuf, FileLinks>);
 
 impl Links {
@@ -39,7 +35,8 @@ impl Links {
         Self::default()
     }
 
-    fn with_capacity(cap: usize) -> Self {
+    /// Create a new Links struct with the given capacity
+    pub fn with_capacity(cap: usize) -> Self {
         Links(HashMap::with_capacity(cap))
     }
 
@@ -213,55 +210,5 @@ impl IntoTable for Links {
                 .collect(),
         )
         .into_table()
-    }
-}
-
-// We use a custom deserialization for Links so that we don't have to walk the whole graph twice. We
-// can reassemble backlinks on deserialization. We're increasing space complexity here because we
-// essentially allocate each FileLinks and path buf twice (once from it deserializing and once while
-// inserting) but gives us more speed on bigger graphs because we only iterate once while
-// deserializing the data. Maybe this optimization doesn't matter, in which case we can just do a
-// deserialize method that deserializes the HashMap and then iterates over it to reconstruct
-// backlinks
-
-struct LinksVisitor;
-
-impl<'de> Visitor<'de> for LinksVisitor {
-    // The type that our Visitor is going to produce.
-    type Value = Links;
-
-    // Format a message stating what data this Visitor expects to receive.
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("HashMap<PathBuf, FileLinks>")
-    }
-
-    // Deserialize MyMap from an abstract "map" provided by the
-    // Deserializer. The MapAccess input is a callback provided by
-    // the Deserializer to let us see each entry in the map.
-    fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
-    where
-        M: MapAccess<'de>,
-    {
-        let mut links = access
-            .size_hint()
-            .map(Links::with_capacity)
-            .unwrap_or_default();
-
-        // While there are entries remaining in the input, add them
-        // into our map.
-        while let Some((key, value)) = access.next_entry::<PathBuf, FileLinks>()? {
-            links.insert_links(key, value.links);
-        }
-
-        Ok(links)
-    }
-}
-
-impl<'de> Deserialize<'de> for Links {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserializer.deserialize_map(LinksVisitor)
     }
 }

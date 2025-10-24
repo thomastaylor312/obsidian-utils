@@ -1,4 +1,7 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+};
 
 use clap::Parser;
 use comrak::Arena;
@@ -26,7 +29,7 @@ pub struct Cli {
 pub struct TagInfo {
     /// The files associated with this tag
     #[tabled(format("{}", self.files.len()), rename = "File Count")]
-    pub files: Vec<PathBuf>,
+    pub files: HashSet<PathBuf>,
 }
 
 impl TagInfo {
@@ -52,7 +55,7 @@ fn main() -> anyhow::Result<()> {
                     .or_insert_with(TagInfo::new)
                     .files
                     // Have to clone because pf has a lifetime
-                    .push(pf.path.clone());
+                    .insert(pf.path.clone());
             }
         }
         acc
