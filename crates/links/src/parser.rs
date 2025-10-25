@@ -96,3 +96,114 @@ fn parse_links_from_ast<'a, T: AsRef<Path>>(
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Result;
+    use comrak::Arena;
+    use obsidian_core::parser::{self, ParsedFile};
+    use std::collections::HashSet;
+    use std::iter::FromIterator;
+
+    fn vault_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test-vault")
+    }
+
+    fn source_file_path() -> PathBuf {
+        vault_root().join("links/Source.md")
+    }
+
+    fn load_source_file<'a>(arena: &'a Arena<AstNode<'a>>) -> Result<ParsedFile<'a>> {
+        let path = source_file_path();
+        let metadata = std::fs::metadata(&path)?;
+        let ast = parser::parse_file(arena, &path)?;
+        Ok(ParsedFile {
+            path,
+            metadata,
+            ast,
+        })
+    }
+
+    fn link_set<I>(links: I) -> HashSet<PathBuf>
+    where
+        I: IntoIterator<Item = PathBuf>,
+    {
+        HashSet::from_iter(links)
+    }
+
+    #[test]
+    fn parse_links_infer_style_resolves_relative_and_root_paths() -> Result<()> {
+        let vault = vault_root();
+        let arena = Arena::new();
+        let parsed = load_source_file(&arena)?;
+        let file_dir = parsed.path.parent().unwrap().to_path_buf();
+
+        let mut results: Vec<_> = parse_links(vec![parsed], &vault, LinkStyle::Infer).collect();
+        assert_eq!(results.len(), 1);
+        let (_file, links) = results.pop().unwrap();
+        let observed = link_set(links);
+
+        let expected = link_set([
+            file_dir.join("../Test.md"),
+            vault.join("nested/Deep.md"),
+            file_dir.join("./Sibling.md"),
+            file_dir.join("WikiTarget"),
+            file_dir.join("./WikiSibling"),
+        ]);
+
+        assert_eq!(observed, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_links_from_vault_root_style_prefixes_vault_directory() -> Result<()> {
+        let vault = vault_root();
+        let arena = Arena::new();
+        let parsed = load_source_file(&arena)?;
+
+        let mut results: Vec<_> =
+            parse_links(vec![parsed], &vault, LinkStyle::FromVaultRoot).collect();
+        assert_eq!(results.len(), 1);
+        let (_file, links) = results.pop().unwrap();
+        let observed = link_set(links);
+
+        let expected = link_set([
+            vault.join("../Test.md"),
+            vault.join("nested/Deep.md"),
+            vault.join("./Sibling.md"),
+            vault.join("WikiTarget"),
+            vault.join("./WikiSibling"),
+        ]);
+
+        assert_eq!(observed, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn parse_links_relative_to_file_style_keeps_links_local() -> Result<()> {
+        let vault = vault_root();
+        let arena = Arena::new();
+        let parsed = load_source_file(&arena)?;
+        let file_dir = parsed.path.parent().unwrap().to_path_buf();
+
+        let mut results: Vec<_> =
+            parse_links(vec![parsed], &vault, LinkStyle::RelativeToFile).collect();
+        assert_eq!(results.len(), 1);
+        let (_file, links) = results.pop().unwrap();
+        let observed = link_set(links);
+
+        let expected = link_set([
+            file_dir.join("../Test.md"),
+            file_dir.join("nested/Deep.md"),
+            file_dir.join("./Sibling.md"),
+            file_dir.join("WikiTarget"),
+            file_dir.join("./WikiSibling"),
+        ]);
+
+        assert_eq!(observed, expected);
+
+        Ok(())
+    }
+}

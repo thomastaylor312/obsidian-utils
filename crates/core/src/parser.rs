@@ -87,3 +87,85 @@ pub fn parse_file<'a>(
 pub fn parse_content<'a>(arena: &'a Arena<AstNode<'a>>, content: &str) -> &'a AstNode<'a> {
     comrak::parse_document(arena, content, &PARSE_OPTIONS)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::reader;
+    use anyhow::{Result, anyhow};
+
+    fn vault_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test-vault")
+    }
+
+    #[test]
+    fn parse_file_builds_ast() -> Result<()> {
+        let vault = vault_path();
+        let path = vault.join("Test.md");
+        let arena = Arena::new();
+        let ast = parse_file(&arena, &path)?;
+
+        let frontmatter = crate::frontmatter::parse_frontmatter([ParsedFile {
+            path: path.clone(),
+            metadata: std::fs::metadata(&path)?,
+            ast,
+        }])
+        .next()
+        .and_then(|(_, fm)| fm);
+
+        assert!(frontmatter.is_some(), "expected frontmatter to parse");
+        let frontmatter = frontmatter.unwrap();
+        assert_eq!(
+            frontmatter.tags,
+            Some(vec!["foo".to_string(), "bar".to_string()])
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_files_skips_non_markdown_entries() -> Result<()> {
+        let vault = vault_path();
+        let entries = reader::read_dir(&vault, true)?;
+        let arena = Arena::new();
+
+        let parsed_files = parse_files(&arena, entries).collect::<Result<Vec<_>, _>>()?;
+        let mut relative_paths: Vec<PathBuf> = parsed_files
+            .iter()
+            .map(|pf| pf.path.strip_prefix(&vault).unwrap().to_path_buf())
+            .collect();
+        relative_paths.sort();
+
+        assert!(relative_paths.contains(&PathBuf::from("Test.md")));
+        assert!(relative_paths.contains(&PathBuf::from("other/Other.md")));
+        assert!(
+            !relative_paths.contains(&PathBuf::from("notes.txt")),
+            "Non-markdown files should be ignored during parsing"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn ignore_error_iter_filters_errors() -> Result<()> {
+        let vault = vault_path();
+        let path = vault.join("Test.md");
+        let metadata = std::fs::metadata(&path)?;
+
+        let arena = Arena::new();
+        let ast = parse_content(&arena, "# Heading");
+
+        let parsed = ParsedFile {
+            path: path.clone(),
+            metadata,
+            ast,
+        };
+
+        let items: Vec<_> = ignore_error_iter(vec![Ok(parsed), Err(anyhow!("boom"))]).collect();
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].path, path);
+
+        Ok(())
+    }
+}

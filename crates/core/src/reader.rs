@@ -47,3 +47,64 @@ pub fn read_dir(path: impl AsRef<Path>, recurse: bool) -> Result<Vec<FileEntry>>
     }
     Ok(entries)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn vault_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test-vault")
+    }
+
+    #[test]
+    fn read_dir_non_recursive_ignores_subdirectories() -> anyhow::Result<()> {
+        let vault = vault_path();
+        let entries = read_dir(&vault, false)?;
+        let mut relative_paths: Vec<PathBuf> = entries
+            .iter()
+            .map(|entry| entry.path.strip_prefix(&vault).unwrap().to_path_buf())
+            .collect();
+        relative_paths.sort();
+
+        assert!(
+            relative_paths.contains(&PathBuf::from("Test.md")),
+            "Expected root markdown file to be discovered"
+        );
+        assert!(
+            !relative_paths.contains(&PathBuf::from("other/Other.md")),
+            "Subdirectory files should not be returned when recurse is false"
+        );
+        assert!(
+            relative_paths.contains(&PathBuf::from("notes.txt")),
+            "Non-markdown files are still surfaced by the directory reader"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn read_dir_recursive_finds_nested_files_only() -> anyhow::Result<()> {
+        let vault = vault_path();
+        let entries = read_dir(&vault, true)?;
+        let mut relative_paths: Vec<PathBuf> = entries
+            .iter()
+            .map(|entry| entry.path.strip_prefix(&vault).unwrap().to_path_buf())
+            .collect();
+        relative_paths.sort();
+
+        assert!(
+            relative_paths.contains(&PathBuf::from("other/Other.md")),
+            "Expected nested markdown file when recurse is true"
+        );
+        assert!(
+            !relative_paths.iter().any(|p| p.ends_with("other")),
+            "Directories should not be returned"
+        );
+        assert!(
+            entries.iter().all(|entry| entry.metadata.is_file()),
+            "Directory reader should only produce file metadata"
+        );
+
+        Ok(())
+    }
+}

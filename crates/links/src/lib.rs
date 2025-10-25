@@ -212,3 +212,157 @@ impl IntoTable for Links {
         .into_table()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+    use std::iter::FromIterator;
+
+    #[test]
+    fn insert_link_records_forward_and_back_references() {
+        let mut links = Links::new();
+        let from = PathBuf::from("/vault/source.md");
+        let to = PathBuf::from("/vault/target.md");
+
+        links.insert_link(from.clone(), to.clone());
+
+        let from_entry = links.get(&from).expect("from entry missing");
+        assert!(from_entry.exists);
+        assert!(from_entry.links.contains(&to));
+        assert!(from_entry.backlinks.is_empty());
+
+        let to_entry = links.get(&to).expect("to entry missing");
+        assert!(!to_entry.exists);
+        assert!(to_entry.links.is_empty());
+        assert!(to_entry.backlinks.contains(&from));
+    }
+
+    #[test]
+    fn insert_links_bulk_adds_all_targets() {
+        let mut links = Links::new();
+        let from = PathBuf::from("/vault/origin.md");
+        let targets = vec![
+            PathBuf::from("/vault/a.md"),
+            PathBuf::from("/vault/b.md"),
+            PathBuf::from("/vault/c.md"),
+        ];
+
+        links.insert_links(from.clone(), targets.clone());
+
+        let from_entry = links.get(&from).expect("origin entry missing");
+        assert_eq!(from_entry.links.len(), targets.len());
+        for target in &targets {
+            assert!(from_entry.links.contains(target));
+            let target_entry = links.get(target).expect("target entry missing");
+            assert!(target_entry.backlinks.contains(&from));
+        }
+    }
+
+    #[test]
+    fn insert_file_creates_orphan_entry() {
+        let mut links = Links::new();
+        let orphan = PathBuf::from("/vault/orphan.md");
+
+        links.insert_file(orphan.clone());
+
+        let entry = links.get(&orphan).expect("orphan entry missing");
+        assert!(entry.exists);
+        assert!(entry.links.is_empty());
+        assert!(entry.backlinks.is_empty());
+    }
+
+    #[test]
+    fn traverse_links_depth_first_visits_all_nodes() {
+        let mut links = Links::new();
+        let root = PathBuf::from("/vault/root.md");
+        let child_a = PathBuf::from("/vault/a.md");
+        let child_b = PathBuf::from("/vault/b.md");
+        let grandchild = PathBuf::from("/vault/c.md");
+
+        links.insert_link(root.clone(), child_a.clone());
+        links.insert_link(root.clone(), child_b.clone());
+        links.insert_link(child_a.clone(), grandchild.clone());
+
+        let order: Vec<PathBuf> = links
+            .traverse_links_dfs(root.as_path())
+            .map(|(path, _)| path.to_path_buf())
+            .collect();
+
+        assert_eq!(order.len(), 4);
+        assert_eq!(order.first(), Some(&root));
+
+        let index_of = |value: &PathBuf| order.iter().position(|p| p == value).unwrap();
+        let idx_child_a = index_of(&child_a);
+        let idx_grandchild = index_of(&grandchild);
+
+        assert!(
+            idx_grandchild > idx_child_a,
+            "grandchild should appear after its parent when traversing depth-first: {:?}",
+            order
+        );
+
+        let between = &order[idx_child_a + 1..idx_grandchild];
+        assert!(
+            between.iter().all(|entry| entry == &grandchild),
+            "nodes between child_a and its descendant should belong to that subtree (DFS property), observed: {:?}",
+            between
+        );
+
+        let visited: HashSet<PathBuf> = HashSet::from_iter(order);
+        let expected = HashSet::from_iter([
+            root.clone(),
+            child_a.clone(),
+            child_b.clone(),
+            grandchild.clone(),
+        ]);
+        assert_eq!(visited, expected);
+    }
+
+    #[test]
+    fn traverse_backlinks_depth_first_visits_all_nodes() {
+        let mut links = Links::new();
+        let root = PathBuf::from("/vault/root.md");
+        let child_a = PathBuf::from("/vault/a.md");
+        let child_b = PathBuf::from("/vault/b.md");
+        let grandchild = PathBuf::from("/vault/c.md");
+
+        links.insert_link(child_a.clone(), root.clone());
+        links.insert_link(child_b.clone(), root.clone());
+        links.insert_link(grandchild.clone(), child_b.clone());
+
+        let order: Vec<PathBuf> = links
+            .traverse_backlinks_dfs(root.as_path())
+            .map(|(path, _)| path.to_path_buf())
+            .collect();
+
+        assert_eq!(order.len(), 4);
+        assert_eq!(order.first(), Some(&root));
+
+        let index_of = |value: &PathBuf| order.iter().position(|p| p == value).unwrap();
+        let idx_child_b = index_of(&child_b);
+        let idx_grandchild = index_of(&grandchild);
+
+        assert!(
+            idx_grandchild > idx_child_b,
+            "backlink traversal should visit a node before its descendants: {:?}",
+            order
+        );
+
+        let between = &order[idx_child_b + 1..idx_grandchild];
+        assert!(
+            between.iter().all(|entry| entry == &grandchild),
+            "nodes between child_b and its descendant backlink should belong to that subtree, observed: {:?}",
+            between
+        );
+
+        let visited: HashSet<PathBuf> = HashSet::from_iter(order);
+        let expected = HashSet::from_iter([
+            root.clone(),
+            child_a.clone(),
+            child_b.clone(),
+            grandchild.clone(),
+        ]);
+        assert_eq!(visited, expected);
+    }
+}

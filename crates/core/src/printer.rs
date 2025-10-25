@@ -143,3 +143,55 @@ impl Format {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+    use std::io::Cursor;
+
+    #[derive(Debug, Clone, Serialize, Deserialize, Tabled)]
+    struct Row {
+        name: String,
+    }
+
+    #[test]
+    fn format_from_str_accepts_supported_values() {
+        assert_eq!("table".parse::<Format>().unwrap(), Format::Table);
+        assert_eq!("json".parse::<Format>().unwrap(), Format::Json);
+        assert_eq!("binary".parse::<Format>().unwrap(), Format::Binary);
+        assert!("unknown".parse::<Format>().is_err());
+    }
+
+    #[test]
+    fn json_format_round_trip() -> anyhow::Result<()> {
+        let rows = vec![Row {
+            name: "gamma".into(),
+        }];
+        let mut buffer = Vec::new();
+
+        Format::Json.print("rows", rows, &mut buffer)?;
+
+        let value: Value = serde_json::from_slice(&buffer)?;
+        assert_eq!(value["rows"][0]["name"], "gamma");
+
+        Ok(())
+    }
+
+    #[test]
+    fn binary_format_round_trip() -> anyhow::Result<()> {
+        let rows = vec![Row {
+            name: "delta".into(),
+        }];
+        let mut buffer = Vec::new();
+
+        Format::Binary.print("rows", rows, &mut buffer)?;
+
+        let mut cursor = Cursor::new(buffer);
+        let decoded: HashMap<String, Vec<Row>> = ciborium::from_reader(&mut cursor)?;
+
+        assert_eq!(decoded.get("rows").unwrap()[0].name, "delta");
+
+        Ok(())
+    }
+}
