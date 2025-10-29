@@ -6,13 +6,8 @@ use std::{
 use clap::Parser;
 use comrak::Arena;
 use serde::{Deserialize, Serialize};
-use tabled::Tabled;
 
-use obsidian_core::{
-    frontmatter, parser,
-    printer::{self, HashMapTabler},
-    reader,
-};
+use obsidian_core::{frontmatter, parser, printer, reader};
 
 #[derive(Parser, Debug)]
 #[command(name = "obsidian-tags", about, long_about = None)]
@@ -25,10 +20,9 @@ pub struct Cli {
 }
 
 // A struct tying data to a tag. Right now this is really simple, but may be expanded in the future
-#[derive(Debug, Serialize, Deserialize, Default, Tabled)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct TagInfo {
     /// The files associated with this tag
-    #[tabled(format("{}", self.files.len()), rename = "File Count")]
     pub files: HashSet<PathBuf>,
 }
 
@@ -61,9 +55,7 @@ fn main() -> anyhow::Result<()> {
         acc
     });
 
-    cli.printer.format.print(
-        obsidian_core::TAGS_DATA_KEY,
-        HashMapTabler::new("Tag", tags),
-        &mut std::io::stdout(),
-    )
+    cli.printer
+        .format
+        .print(obsidian_core::TAGS_DATA_KEY, tags, &mut std::io::stdout())
 }

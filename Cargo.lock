@@ -697,7 +697,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_norway",
- "tabled",
 ]
 
 [[package]]
@@ -710,7 +709,6 @@ dependencies = [
  "obsidian-core",
  "serde",
  "serde_json",
- "tabled",
  "url",
 ]
 
@@ -1118,7 +1116,6 @@ dependencies = [
  "log",
  "obsidian-core",
  "serde",
- "tabled",
 ]
 
 [[package]]

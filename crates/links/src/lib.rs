@@ -4,25 +4,19 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use obsidian_core::printer::{HashMapTabler, IntoTable};
 use serde::{Deserialize, Serialize};
-use tabled::{Tabled, derive::display};
 
 pub mod parser;
 
 /// Information about links associated with a file
-#[derive(Debug, Serialize, Deserialize, Tabled)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct FileLinks {
     /// Whether or not the file actually exists in the vault. If this is false, by definition it will
     /// only have backlinks
     pub exists: bool,
-    // TODO: I might want to do a custom formatter for these sets rather than just using debug for
-    // the table
     /// All links found in the file to other vault files. Does not include external links
-    #[tabled(display("display::debug"))]
     pub links: HashSet<PathBuf>,
     /// All backlinks found in other files pointing to this file
-    #[tabled(display("display::debug"))]
     pub backlinks: HashSet<PathBuf>,
 }
 
@@ -184,32 +178,6 @@ impl IntoIterator for Links {
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
-    }
-}
-
-impl IntoTable for Links {
-    fn into_table(self) -> tabled::Table {
-        HashMapTabler::new(
-            "File",
-            self.0
-                .into_iter()
-                .filter_map(|(k, v)| {
-                    // Convert the PathBuf to a String for the table and filter out any paths that can't be
-                    // converted with a log message
-                    match k.to_str() {
-                        Some(s) => Some((s.to_string(), v)),
-                        None => {
-                            log::warn!(
-                                "Skipping path {:?} for table output as it is not valid UTF-8",
-                                k
-                            );
-                            None
-                        }
-                    }
-                })
-                .collect(),
-        )
-        .into_table()
     }
 }
 
