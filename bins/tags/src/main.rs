@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     path::PathBuf,
     str::FromStr,
 };
@@ -41,8 +41,8 @@ pub struct Cli {
 #[derive(Debug, Clone)]
 /// A filter for selecting files based on their tags
 pub enum Filter {
-    TagAll(HashSet<String>),
-    TagAny(HashSet<String>),
+    TagAll(BTreeSet<String>),
+    TagAny(BTreeSet<String>),
 }
 
 impl FromStr for Filter {
@@ -68,16 +68,16 @@ impl FromStr for Filter {
 }
 
 impl Filter {
-    fn get_matches<'a>(&self, tags: &'a HashMap<String, TagInfo>) -> HashSet<&'a PathBuf> {
+    fn get_matches<'a>(&self, tags: &'a BTreeMap<String, TagInfo>) -> BTreeSet<&'a PathBuf> {
         match self {
             Filter::TagAll(required_tags) => {
-                let mut sets: Vec<HashSet<&PathBuf>> = Vec::with_capacity(required_tags.len());
+                let mut sets: Vec<BTreeSet<&PathBuf>> = Vec::with_capacity(required_tags.len());
                 for tag in required_tags {
                     if let Some(tag_info) = tags.get(tag) {
                         sets.push(tag_info.files.iter().collect());
                     } else {
                         // If any required tag is missing, no files can match
-                        return HashSet::new();
+                        return BTreeSet::new();
                     }
                 }
                 // Intersect all sets to find files that have all required tags
@@ -86,7 +86,7 @@ impl Filter {
                     .unwrap_or_default()
             }
             Filter::TagAny(possible_tags) => {
-                let mut result = HashSet::new();
+                let mut result = BTreeSet::new();
                 for tag in possible_tags {
                     if let Some(tag_info) = tags.get(tag) {
                         result.extend(tag_info.files.iter());
@@ -102,7 +102,7 @@ impl Filter {
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct TagInfo {
     /// The files associated with this tag
-    pub files: HashSet<PathBuf>,
+    pub files: BTreeSet<PathBuf>,
 }
 
 impl TagInfo {
@@ -115,13 +115,13 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     env_logger::init();
 
-    let entries = cli.read_opts.read_dir()?;
+    let entries = cli.read_opts.read_files()?;
 
     let arena = Arena::with_capacity(entries.len());
     let parsed_files = parser::ignore_error_iter(parser::parse_files(&arena, entries));
     let parsed_with_fm = frontmatter::parse_frontmatter(parsed_files);
 
-    let tags = parsed_with_fm.fold(HashMap::new(), |mut acc, (pf, fm)| {
+    let tags = parsed_with_fm.fold(BTreeMap::new(), |mut acc, (pf, fm)| {
         if let Some(fm) = fm {
             for tag in fm.tags.unwrap_or_default() {
                 acc.entry(tag)
@@ -159,17 +159,17 @@ fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{Filter, TagInfo};
-    use std::collections::{HashMap, HashSet};
+    use std::collections::{BTreeMap, BTreeSet};
     use std::path::PathBuf;
     use std::str::FromStr;
 
-    fn expected_tag_set(tags: &[&str]) -> HashSet<String> {
+    fn expected_tag_set(tags: &[&str]) -> BTreeSet<String> {
         tags.iter().map(|tag| tag.to_string()).collect()
     }
 
     fn tag_info(paths: &[&str]) -> TagInfo {
         TagInfo {
-            files: paths.iter().map(PathBuf::from).collect::<HashSet<_>>(),
+            files: paths.iter().map(PathBuf::from).collect::<BTreeSet<_>>(),
         }
     }
 
@@ -213,7 +213,7 @@ mod tests {
 
     #[test]
     fn get_matches_requires_all_tags() {
-        let mut tags: HashMap<String, TagInfo> = HashMap::new();
+        let mut tags: BTreeMap<String, TagInfo> = BTreeMap::new();
         tags.insert("one".into(), tag_info(&["note1.md", "note2.md"]));
         tags.insert("two".into(), tag_info(&["note2.md", "note3.md"]));
 
@@ -222,18 +222,18 @@ mod tests {
             .get_matches(&tags)
             .into_iter()
             .cloned()
-            .collect::<HashSet<PathBuf>>();
+            .collect::<BTreeSet<PathBuf>>();
         let expected = ["note2.md"]
             .into_iter()
             .map(PathBuf::from)
-            .collect::<HashSet<_>>();
+            .collect::<BTreeSet<_>>();
 
         assert_eq!(matches, expected);
     }
 
     #[test]
     fn get_matches_handles_missing_required_tag() {
-        let mut tags: HashMap<String, TagInfo> = HashMap::new();
+        let mut tags: BTreeMap<String, TagInfo> = BTreeMap::new();
         tags.insert("one".into(), tag_info(&["note1.md", "note2.md"]));
 
         let filter = Filter::from_str("tag:one,two").unwrap();
@@ -244,7 +244,7 @@ mod tests {
 
     #[test]
     fn get_matches_collects_any_tags() {
-        let mut tags: HashMap<String, TagInfo> = HashMap::new();
+        let mut tags: BTreeMap<String, TagInfo> = BTreeMap::new();
         tags.insert("one".into(), tag_info(&["note1.md", "note2.md"]));
         tags.insert("two".into(), tag_info(&["note2.md", "note3.md"]));
 
@@ -253,11 +253,11 @@ mod tests {
             .get_matches(&tags)
             .into_iter()
             .cloned()
-            .collect::<HashSet<PathBuf>>();
+            .collect::<BTreeSet<PathBuf>>();
         let expected = ["note2.md", "note3.md"]
             .into_iter()
             .map(PathBuf::from)
-            .collect::<HashSet<_>>();
+            .collect::<BTreeSet<_>>();
 
         assert_eq!(matches, expected);
     }

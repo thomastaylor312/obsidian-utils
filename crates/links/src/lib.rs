@@ -1,6 +1,6 @@
 use std::{
     borrow::Borrow,
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
 };
 
@@ -15,23 +15,25 @@ pub struct FileLinks {
     /// only have backlinks
     pub exists: bool,
     /// All links found in the file to other vault files. Does not include external links
-    pub links: HashSet<PathBuf>,
+    pub links: BTreeSet<PathBuf>,
     /// All backlinks found in other files pointing to this file
-    pub backlinks: HashSet<PathBuf>,
+    pub backlinks: BTreeSet<PathBuf>,
+}
+
+impl FileLinks {
+    /// Returns true if the file is an orphan (i.e. it has no links and no backlinks)
+    pub fn is_orphan(&self) -> bool {
+        self.links.is_empty() && self.backlinks.is_empty()
+    }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
-pub struct Links(HashMap<PathBuf, FileLinks>);
+pub struct Links(BTreeMap<PathBuf, FileLinks>);
 
 impl Links {
     /// Create a new, empty Links struct
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Create a new Links struct with the given capacity
-    pub fn with_capacity(cap: usize) -> Self {
-        Links(HashMap::with_capacity(cap))
     }
 
     /// Insert a link from one file to another. The `from` value should always be a path to a file
@@ -52,8 +54,8 @@ impl Links {
                 from.clone(),
                 FileLinks {
                     exists: true,
-                    links: HashSet::from([to.clone()]),
-                    backlinks: HashSet::new(),
+                    links: BTreeSet::from([to.clone()]),
+                    backlinks: BTreeSet::new(),
                 },
             );
         }
@@ -67,8 +69,8 @@ impl Links {
                 to,
                 FileLinks {
                     exists: false,
-                    links: HashSet::new(),
-                    backlinks: HashSet::from([from]),
+                    links: BTreeSet::new(),
+                    backlinks: BTreeSet::from([from]),
                 },
             );
         }
@@ -80,7 +82,13 @@ impl Links {
     where
         I: IntoIterator<Item = PathBuf>,
     {
-        for to in to_files {
+        // If there are no to_files, we still want to mark the `from` file as existing
+        let iter = to_files.into_iter();
+        let mut peekable = iter.peekable();
+        if peekable.peek().is_none() {
+            self.insert_file(from.clone());
+        }
+        for to in peekable {
             self.insert_link(from.clone(), to);
         }
     }
@@ -88,11 +96,12 @@ impl Links {
     /// Add a file that exists but has no outgoing links. This allows adding nodes into the graph
     /// that are orphans, or while manually constructing links.
     pub fn insert_file(&mut self, path: PathBuf) {
-        self.0.entry(path).or_insert(FileLinks {
+        let entry = self.0.entry(path).or_insert(FileLinks {
             exists: true,
-            links: HashSet::new(),
-            backlinks: HashSet::new(),
+            links: BTreeSet::new(),
+            backlinks: BTreeSet::new(),
         });
+        entry.exists = true;
     }
 
     /// Get the link info for a single file, if it exists
@@ -103,6 +112,27 @@ impl Links {
     /// Get an iterator over all files and their associated link info
     pub fn iter(&self) -> impl Iterator<Item = (&PathBuf, &FileLinks)> {
         self.0.iter()
+    }
+
+    /// Get an iterator over all non-orphan files and their associated link info
+    pub fn iter_non_orphans(&self) -> impl Iterator<Item = (&PathBuf, &FileLinks)> {
+        self.0
+            .iter()
+            .filter(|(_, file_links)| !file_links.is_orphan())
+    }
+
+    /// Get an iterator over all orphan files. Because orphans have no links, this will only return
+    /// file names
+    pub fn iter_orphans(&self) -> impl Iterator<Item = &PathBuf> {
+        self.0
+            .iter()
+            .filter_map(|(path, file_links)| file_links.is_orphan().then_some(path))
+    }
+
+    /// Prune all files that do not have any links or backlinks. This removes orphaned nodes from
+    /// the graph.
+    pub fn prune_orphans(&mut self) {
+        self.0.retain(|_, file_links| !file_links.is_orphan());
     }
 
     /// Traverse all links in the graph depth-first starting from the given file path, returning an
@@ -117,7 +147,7 @@ impl Links {
         &'a self,
         start: &'a Path,
     ) -> impl Iterator<Item = (&'a Path, &'a FileLinks)> + 'a {
-        let mut visited = HashSet::new();
+        let mut visited = BTreeSet::new();
         let mut stack = Vec::new();
 
         if let Some(start_links) = self.0.get(start) {
@@ -149,7 +179,7 @@ impl Links {
         &'a self,
         start: &'a Path,
     ) -> impl Iterator<Item = (&'a Path, &'a FileLinks)> + 'a {
-        let mut visited = HashSet::new();
+        let mut visited = BTreeSet::new();
         let mut stack = Vec::new();
 
         if let Some(start_links) = self.0.get(start) {
@@ -174,7 +204,7 @@ impl Links {
 
 impl IntoIterator for Links {
     type Item = (PathBuf, FileLinks);
-    type IntoIter = std::collections::hash_map::IntoIter<PathBuf, FileLinks>;
+    type IntoIter = std::collections::btree_map::IntoIter<PathBuf, FileLinks>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
@@ -184,7 +214,7 @@ impl IntoIterator for Links {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
+    use std::collections::BTreeSet;
     use std::iter::FromIterator;
 
     #[test]
@@ -241,6 +271,19 @@ mod tests {
     }
 
     #[test]
+    fn insert_links_without_targets_marks_source_file() {
+        let mut links = Links::new();
+        let lonely = PathBuf::from("/vault/orphan.md");
+
+        links.insert_links(lonely.clone(), Vec::<PathBuf>::new());
+
+        let entry = links.get(&lonely).expect("expected entry for lonely file");
+        assert!(entry.exists);
+        assert!(entry.links.is_empty());
+        assert!(entry.backlinks.is_empty());
+    }
+
+    #[test]
     fn traverse_links_depth_first_visits_all_nodes() {
         let mut links = Links::new();
         let root = PathBuf::from("/vault/root.md");
@@ -277,8 +320,8 @@ mod tests {
             between
         );
 
-        let visited: HashSet<PathBuf> = HashSet::from_iter(order);
-        let expected = HashSet::from_iter([
+        let visited: BTreeSet<PathBuf> = BTreeSet::from_iter(order);
+        let expected = BTreeSet::from_iter([
             root.clone(),
             child_a.clone(),
             child_b.clone(),
@@ -324,13 +367,70 @@ mod tests {
             between
         );
 
-        let visited: HashSet<PathBuf> = HashSet::from_iter(order);
-        let expected = HashSet::from_iter([
+        let visited: BTreeSet<PathBuf> = BTreeSet::from_iter(order);
+        let expected = BTreeSet::from_iter([
             root.clone(),
             child_a.clone(),
             child_b.clone(),
             grandchild.clone(),
         ]);
         assert_eq!(visited, expected);
+    }
+
+    #[test]
+    fn iter_orphans_only_returns_orphan_files() {
+        let mut links = Links::new();
+        let orphan_a = PathBuf::from("/vault/orphan-a.md");
+        let orphan_b = PathBuf::from("/vault/orphan-b.md");
+        let connected_a = PathBuf::from("/vault/linked-a.md");
+        let connected_b = PathBuf::from("/vault/linked-b.md");
+
+        links.insert_file(orphan_a.clone());
+        links.insert_file(orphan_b.clone());
+        links.insert_link(connected_a.clone(), connected_b.clone());
+
+        let observed: BTreeSet<PathBuf> = links
+            .iter_orphans()
+            .cloned()
+            .collect();
+        let expected = BTreeSet::from_iter([orphan_a, orphan_b]);
+
+        assert_eq!(observed, expected);
+    }
+
+    #[test]
+    fn iter_non_orphans_excludes_orphan_files() {
+        let mut links = Links::new();
+        let orphan = PathBuf::from("/vault/orphan.md");
+        let source = PathBuf::from("/vault/source.md");
+        let target = PathBuf::from("/vault/target.md");
+
+        links.insert_file(orphan);
+        links.insert_link(source.clone(), target.clone());
+
+        let observed: BTreeSet<PathBuf> = links
+            .iter_non_orphans()
+            .map(|(path, _)| path.clone())
+            .collect();
+        let expected = BTreeSet::from_iter([source, target]);
+
+        assert_eq!(observed, expected);
+    }
+
+    #[test]
+    fn prune_orphans_removes_orphan_entries() {
+        let mut links = Links::new();
+        let orphan = PathBuf::from("/vault/orphan.md");
+        let source = PathBuf::from("/vault/source.md");
+        let target = PathBuf::from("/vault/target.md");
+
+        links.insert_file(orphan.clone());
+        links.insert_link(source.clone(), target.clone());
+
+        links.prune_orphans();
+
+        assert!(links.get(&orphan).is_none(), "expected orphan to be pruned");
+        assert!(links.get(&source).is_some(), "non-orphan should remain");
+        assert!(links.get(&target).is_some(), "backlinked file should remain");
     }
 }

@@ -1,5 +1,6 @@
 use clap::Args;
 use std::fs::Metadata;
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -10,16 +11,27 @@ pub struct ReaderOpts {
     #[arg(long, default_value_t = true)]
     pub recurse: bool,
 
-    /// The directory containing the vault to operate on
-    // TODO: Make this optional once we support a list of files from stdin
-    pub vault_dir: PathBuf,
+    /// A directory containing files to read. Ignored if reading paths from stdin.
+    ///
+    /// When reading from stdin, if --recurse is set to true, files in directories will also be
+    /// read. Otherwise, only files will be read and all other paths ignored.
+    pub dir: Option<PathBuf>,
 }
 
 impl ReaderOpts {
-    /// Read the directory specified in the options, returning a list of all files found. This is a
-    /// convenience method around [read_dir].
-    pub fn read_dir(&self) -> Result<Vec<FileEntry>> {
-        read_dir(&self.vault_dir, self.recurse)
+    /// Get this list of file entries from stdin or by the directory specified in the options.
+    pub fn read_files(&self) -> Result<Vec<FileEntry>> {
+        // If stdin is not a terminal, we assume input is being piped in
+        if !std::io::stdin().is_terminal() {
+            read_stdin(self.recurse)
+        } else {
+            let dir = self.dir.as_ref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "No vault directory specified and no input from stdin. Cannot proceed."
+                )
+            })?;
+            read_dir(dir, self.recurse)
+        }
     }
 }
 
@@ -44,6 +56,23 @@ pub fn read_dir(path: impl AsRef<Path>, recurse: bool) -> Result<Vec<FileEntry>>
         } else if metadata.is_file() {
             entries.push(FileEntry { path: p, metadata });
         }
+    }
+    Ok(entries)
+}
+
+pub fn read_stdin(recurse: bool) -> Result<Vec<FileEntry>> {
+    let mut entries = vec![];
+    for line in std::io::stdin().lines() {
+        let line = line?;
+        let path = PathBuf::from(line.trim());
+        let metadata = std::fs::metadata(&path)?;
+        if metadata.is_dir() && recurse {
+            entries.extend(read_dir(&path, true)?);
+            continue;
+        } else if !metadata.is_file() {
+            continue;
+        }
+        entries.push(FileEntry { path, metadata });
     }
     Ok(entries)
 }

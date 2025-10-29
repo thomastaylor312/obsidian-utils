@@ -43,8 +43,15 @@ impl LinkStyle {
     ) -> PathBuf {
         match self {
             LinkStyle::Infer => {
+                // NOTE(thomastaylor312): We can't just use is_relative here since most links in
+                // obsidian are relative to _something_
                 if raw_link.starts_with("./")
                     || raw_link.starts_with("../")
+                    || raw_link
+                        .to_str()
+                        // Check if the first character is not a slash or backslash (which means it
+                        // is relative to the current file)
+                        .is_some_and(|s| s.starts_with(|c| c != '/' && c != '\\'))
                     || raw_link.components().count() == 1
                 {
                     file_path.parent().unwrap_or(Path::new("")).join(raw_link)
@@ -91,8 +98,41 @@ fn parse_links_from_ast<'a, T: AsRef<Path>>(
             if url::Url::parse(&raw_path).is_ok() {
                 return None;
             }
-            // Otherwise, we can convert it to a PathBuf and add it to our list of links
-            Some(link_style.path_from_link(PathBuf::from(raw_path), file_path, vault_root))
+
+            // Links may be percent-encoded, so we decode them first
+            let decoded_path = match urlencoding::decode(&raw_path).ok() {
+                Some(dp) => dp.into_owned(),
+                None => {
+                    log::warn!("Failed to decode link path: {}", raw_path);
+                    return None;
+                }
+            };
+
+            // Convert to PathBuf
+            let mut decoded_path = PathBuf::from(decoded_path);
+
+            // Now remove any fragment components (e.g. #heading) from the path since these are
+            // valid in markdown links. These will only be in the filename, so we pull that off,
+            // remove the fragment, and reattach it.
+
+            let maybe_cleaned = if let Some((file_stem, _)) = decoded_path
+                .file_name()
+                .and_then(|fname| fname.to_str())
+                .and_then(|s| s.split_once('#'))
+            {
+                // This would be internal document links (i.e. just a heading), so we skip it
+                if file_stem.is_empty() {
+                    return None;
+                }
+                // Clone the cleaned filename so we release the borrow on decoded_path
+                Some(file_stem.to_owned())
+            } else {
+                None
+            };
+            if let Some(cleaned) = maybe_cleaned {
+                decoded_path.set_file_name(cleaned);
+            }
+            Some(link_style.path_from_link(decoded_path, file_path, vault_root))
         })
         .collect()
 }
@@ -114,8 +154,22 @@ mod tests {
         vault_root().join("links/Source.md")
     }
 
+    fn encoded_file_path() -> PathBuf {
+        vault_root().join("links/Encoded.md")
+    }
+
     fn load_source_file<'a>(arena: &'a Arena<AstNode<'a>>) -> Result<ParsedFile<'a>> {
-        let path = source_file_path();
+        load_file(arena, source_file_path())
+    }
+
+    fn load_encoded_file<'a>(arena: &'a Arena<AstNode<'a>>) -> Result<ParsedFile<'a>> {
+        load_file(arena, encoded_file_path())
+    }
+
+    fn load_file<'a>(
+        arena: &'a Arena<AstNode<'a>>,
+        path: PathBuf,
+    ) -> Result<ParsedFile<'a>> {
         let metadata = std::fs::metadata(&path)?;
         let ast = parser::parse_file(arena, &path)?;
         Ok(ParsedFile {
@@ -146,7 +200,7 @@ mod tests {
 
         let expected = link_set([
             file_dir.join("../Test.md"),
-            vault.join("nested/Deep.md"),
+            file_dir.join("nested/Deep.md"),
             file_dir.join("./Sibling.md"),
             file_dir.join("WikiTarget"),
             file_dir.join("./WikiSibling"),
@@ -204,6 +258,27 @@ mod tests {
 
         assert_eq!(observed, expected);
 
+        Ok(())
+    }
+
+    #[test]
+    fn parse_links_decodes_percent_encoding_and_strips_fragments() -> Result<()> {
+        let vault = vault_root();
+        let arena = Arena::new();
+        let parsed = load_encoded_file(&arena)?;
+        let file_dir = parsed.path.parent().unwrap().to_path_buf();
+
+        let mut results: Vec<_> = parse_links(vec![parsed], &vault, LinkStyle::Infer).collect();
+        assert_eq!(results.len(), 1);
+        let (_file, links) = results.pop().unwrap();
+        let observed = link_set(links);
+
+        let expected = link_set([
+            file_dir.join("./Space Target.md"),
+            file_dir.join("./Fragment Target.md"),
+        ]);
+
+        assert_eq!(observed, expected);
         Ok(())
     }
 }
