@@ -10,7 +10,7 @@ on:
 
 jobs:
   lint-and-test:
-    name: ${{ matrix.name }}
+    name: test-${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
