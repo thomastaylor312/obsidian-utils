@@ -4,13 +4,13 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use comrak::{Arena, ExtensionOptions, Options, nodes::AstNode};
+use comrak::{Arena, Options, nodes::AstNode, options::Extension};
 
 use crate::reader::FileEntry;
 
 pub const FRONTMATTER_DELIMITER: &str = "---";
 static PARSE_OPTIONS: LazyLock<Options<'static>> = LazyLock::new(|| Options {
-    extension: ExtensionOptions {
+    extension: Extension {
         strikethrough: true,
         table: true,
         autolink: true,
