@@ -17,9 +17,8 @@
 
         apps = { };
 
-        devShells.default = pkgs.mkShell {
-          packages = with pkgs; [ sqlite zig cargo-zigbuild sqlx-cli ];
-        };
+        devShells.default =
+          pkgs.mkShell { packages = with pkgs; [ zig cargo-zigbuild ]; };
       });
 
 }
