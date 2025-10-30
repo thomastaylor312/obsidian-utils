@@ -6,7 +6,8 @@ use serde::Serialize;
 
 #[derive(Debug, Args)]
 pub struct PrinterArgs {
-    /// The output format to use. Valid options are "plain", "json", and "binary". Default is "plain".
+    /// The output format to use. Valid options are "plain", "json", and "binary". Default is
+    /// "plain". Consult the main help text for the command for details on output format
     #[arg(long, short = 'o', default_value_t = Format::default())]
     pub output: Format,
 }

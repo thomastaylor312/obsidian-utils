@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::parser::ParsedFile;
 
-// TODO: Figure out if we can dynamically generate a schema from the frontmatter keys
+// TODO: Figure out if we can dynamically generate a schema from the types.json schema in the vault
 // so we don't have to use serde_norway::Value everywhere
 
 static FRONTMATTER_DELIMITER_CHARS: LazyLock<Vec<char>> =

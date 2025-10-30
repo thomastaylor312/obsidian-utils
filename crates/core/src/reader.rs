@@ -7,7 +7,8 @@ use anyhow::Result;
 
 #[derive(Args, Debug)]
 pub struct ReaderOpts {
-    /// Whether to recurse into subdirectories when reading the vault. Defaults to true
+    /// Whether to recurse into subdirectories when reading the vault. Defaults to true. This also
+    /// applies when passing directories via stdin.
     #[arg(long, default_value_t = true)]
     pub recurse: bool,
 

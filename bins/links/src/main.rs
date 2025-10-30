@@ -10,7 +10,70 @@ use obsidian_core::{
     reader,
 };
 
-/// Print links found in the vault into a graph of all links
+/// Generate and print an adjacency list of links between markdown files in an Obsidian vault.
+///
+/// By default, this tool will read all markdown files in the specified directory and parse all
+/// links found within them. If passing via stdin, it is highly recommended you set the
+/// `--vault-dir` option to ensure links are resolved correctly.
+///
+/// The output will be an adjacency list where each line contains a source file followed by an
+/// object that indicate whether the file exists and any links and backlinks it has. For this tool,
+/// the plain text output format is mostly useful for human consumption as there isn't a great way
+/// to represent a graph in plain text.
+///
+/// Example output (json):
+/// {
+///   "/path/to/vault/References/Aider.md": {
+///     "exists": true,
+///     "links": [
+///       "/path/to/vault/References/Claude Code.md",
+///       "/path/to/vault/References/Roo Code.md"
+///     ],
+///     "backlinks": []
+///   },
+///   "/path/to/vault/References/Claude Code.md": {
+///     "exists": true,
+///     "links": [],
+///     "backlinks": [
+///       "/path/to/vault/References/Aider.md"
+///     ]
+///   },
+///   "/path/to/vault/References/Ghostty.md": {
+///     "exists": true,
+///     "links": [
+///       "/path/to/vault/References/Warp"
+///     ],
+///     "backlinks": []
+///   },
+///   "/path/to/vault/References/OpenRouter.md": {
+///     "exists": false,
+///     "links": [],
+///     "backlinks": [
+///       "/path/to/vault/References/aichat.md"
+///     ]
+///   },
+///   "/path/to/vault/References/Roo Code.md": {
+///     "exists": false,
+///     "links": [],
+///     "backlinks": [
+///       "/path/to/vault/References/Aider.md"
+///     ]
+///   },
+///   "/path/to/vault/References/Warp": {
+///     "exists": false,
+///     "links": [],
+///     "backlinks": [
+///       "/path/to/vault/References/Ghostty.md"
+///     ]
+///   },
+///   "/path/to/vault/References/aichat.md": {
+///     "exists": true,
+///     "links": [
+///       "/path/to/vault/References/OpenRouter.md"
+///     ],
+///     "backlinks": []
+///   }
+/// }
 #[derive(Parser, Debug)]
 #[command(name = "obsidian-links")]
 pub struct Cli {

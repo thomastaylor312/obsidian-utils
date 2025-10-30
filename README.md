@@ -31,7 +31,7 @@ Here is a quick and dirty example that selects all notes that have both of the s
 then generates a link graph for just those files:
 
 ```terminal
-$ obsidian-tags '/path/to/vault' --filter 'tag:technology,cli' | obsidian-links -o json | jq
+$ obsidian-tags '/path/to/vault' --filter 'tag:technology,cli' | obsidian-links --vault-dir '/path/to/vault' -o json | jq
 {
   "/path/to/vault/References/Aider.md": {
     "exists": true,
@@ -144,6 +144,8 @@ Here are some general ideas of what I want to work on next:
   the text of a template on stdin and output the rendered template on stdout
 - Benchmarks for the CLI using something like `hyperfine`
 - Metadata/frontmatter queries
+- Automatically reading default values for flags like `--link-style` from the vault's
+  `app.json` file
 
 I also had some crazy ideas that I'm not sure will ever see the light of day:
 

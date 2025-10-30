@@ -16,9 +16,10 @@ use obsidian_core::{
 
 /// A command line tool for extracting and filtering Obsidian tags from markdown files.
 ///
-/// By default, this tool will read all markdown files in the specified directory and parse the frontmatter content for tags.
-/// If using a structured printer format (like JSON), it will output a mapping of tags to the files that contain them.
-/// For plain text output, it will return a list of unique tags found across all files.
+/// By default, this tool will read all markdown files in the specified directory and parse the
+/// frontmatter content for tags. If using a structured printer format (like JSON), it will output a
+/// mapping of tags to the files that contain them. For plain text output, it will return a list of
+/// unique tags found across all files.
 #[derive(Parser, Debug)]
 #[command(name = "obsidian-tags", about, long_about = None)]
 pub struct Cli {
@@ -29,7 +30,8 @@ pub struct Cli {
     pub read_opts: reader::ReaderOpts,
 
     /// A filter expression for selecting files based on their tags. When this is passed, the output
-    /// will be in the form of a list of files, encoded according to the selected format.
+    /// will be in the form of a list of files, encoded according to the selected format (e.g. a
+    /// file path on each line for plain text, and an array of file paths for structured formats).
     ///
     /// Filter types:
     /// - tag:<tag1,tag2,...> : Selects files that have all of the specified tags
