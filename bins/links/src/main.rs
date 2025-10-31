@@ -75,7 +75,7 @@ use obsidian_core::{
 ///   }
 /// }
 #[derive(Parser, Debug)]
-#[command(name = "obsidian-links")]
+#[command(name = "obsidian-links", version)]
 pub struct Cli {
     #[command(flatten)]
     pub printer: printer::PrinterArgs,

@@ -21,7 +21,7 @@ use obsidian_core::{
 /// mapping of tags to the files that contain them. For plain text output, it will return a list of
 /// unique tags found across all files.
 #[derive(Parser, Debug)]
-#[command(name = "obsidian-tags", about, long_about = None)]
+#[command(name = "obsidian-tags", version)]
 pub struct Cli {
     #[command(flatten)]
     pub printer: printer::PrinterArgs,

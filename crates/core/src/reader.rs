@@ -12,7 +12,8 @@ pub struct ReaderOpts {
     #[arg(long, default_value_t = true)]
     pub recurse: bool,
 
-    /// A directory containing files to read. Ignored if reading paths from stdin.
+    /// A directory containing files to read. If this is passed, any files passed from stdin will be
+    /// ignored.
     ///
     /// When reading from stdin, if --recurse is set to true, files in directories will also be
     /// read. Otherwise, only files will be read and all other paths ignored.
@@ -22,16 +23,16 @@ pub struct ReaderOpts {
 impl ReaderOpts {
     /// Get this list of file entries from stdin or by the directory specified in the options.
     pub fn read_files(&self) -> Result<Vec<FileEntry>> {
-        // If stdin is not a terminal, we assume input is being piped in
-        if !std::io::stdin().is_terminal() {
+        // If a directory is explicitly provided, use it regardless of stdin state
+        if let Some(dir) = &self.dir {
+            read_dir(dir, self.recurse)
+        } else if !std::io::stdin().is_terminal() {
+            // Only read from stdin if no directory was provided
             read_stdin(self.recurse)
         } else {
-            let dir = self.dir.as_ref().ok_or_else(|| {
-                anyhow::anyhow!(
-                    "No vault directory specified and no input from stdin. Cannot proceed."
-                )
-            })?;
-            read_dir(dir, self.recurse)
+            Err(anyhow::anyhow!(
+                "No vault directory specified and no input from stdin. Cannot proceed."
+            ))
         }
     }
 }
