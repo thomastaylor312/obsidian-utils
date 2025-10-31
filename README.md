@@ -128,7 +128,7 @@ I cannot stress enough that this a work in progress and mostly tested with my ow
 things I know are missing:
 
 - Testing with Windows paths
-- WikiLinks
+- WikiLinks (I use standard markdown links almost exclusively for max compatibility)
 - Plugin-heavy vaults (and the various things they use and abuse Markdown with)
 - "Inline" tags that aren't in frontmatter
 
