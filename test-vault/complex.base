@@ -1,0 +1,125 @@
+formulas:
+  kB: (file.size / 1024).round()
+  MB: '[(file.size / 1048576).toFixed(2).toString(), "MB"].join(" ")'
+  image: image(file.file)
+properties:
+  formula.MB:
+    displayName: Size
+views:
+  - type: cards
+    name: Image grid
+    filters:
+      and:
+        - file.ext == "avif" || file.ext == "bmp" || file.ext == "gif" || file.ext == "jpeg" || file.ext == "jpg" || file.ext == "png" || file.ext == "svg" || file.ext == "webp"
+    order: []
+    sort:
+      - property: file.ctime
+        direction: DESC
+      - property: file.mtime
+        direction: DESC
+      - property: file.name
+        direction: ASC
+    image: file.file
+    imageFit: ""
+  - type: table
+    name: Image table
+    filters:
+      and:
+        - file.ext == "avif" || file.ext == "bmp" || file.ext == "gif" || file.ext == "jpeg" || file.ext == "jpg" || file.ext == "png" || file.ext == "svg" || file.ext == "webp"
+    order:
+      - formula.image
+      - file.name
+      - formula.MB
+      - file.ctime
+      - file.backlinks
+    sort:
+      - property: file.mtime
+        direction: DESC
+      - property: file.name
+        direction: ASC
+    image: file.file
+    imageFit: ""
+    columnSize:
+      formula.image: 222
+      file.name: 317
+      formula.kB: 62
+      file.ctime: 170
+    rowHeight: tall
+  - type: table
+    name: PDFs
+    filters:
+      and:
+        - file.ext == "pdf"
+    order:
+      - file.name
+      - formula.MB
+      - file.ctime
+      - file.backlinks
+    sort:
+      - property: file.ctime
+        direction: DESC
+      - property: file.mtime
+        direction: DESC
+      - property: file.name
+        direction: ASC
+  - type: table
+    name: Videos
+    filters:
+      and:
+        - file.ext == "mkv" || file.ext == "mov" || file.ext == "mp4" || file.ext == "ogv" || file.ext == "webm"
+    order:
+      - file.name
+      - formula.MB
+      - file.ctime
+      - file.backlinks
+    sort:
+      - property: file.ctime
+        direction: DESC
+      - property: file.mtime
+        direction: DESC
+      - property: file.name
+        direction: ASC
+    image: formula.cover
+    imageFit: ""
+    columnSize:
+      file.name: 354
+      file.ctime: 176
+  - type: table
+    name: Audio
+    filters:
+      and:
+        - file.ext == "flac" || file.ext == "m4a" || file.ext == "mp3" || file.ext == "ogg" || file.ext == "wav" || file.ext == "webm" || file.ext == "3gp"
+    order:
+      - file.name
+      - formula.MB
+      - file.backlinks
+      - file.ctime
+    sort:
+      - property: file.ctime
+        direction: DESC
+      - property: file.mtime
+        direction: DESC
+      - property: file.name
+        direction: ASC
+  - type: table
+    name: All attachments
+    filters:
+      and:
+        - file.ext == "avif" || file.ext == "bmp" || file.ext == "gif" || file.ext == "jpeg" || file.ext == "jpg" || file.ext == "png" || file.ext == "svg" || file.ext == "webp" || file.ext == "flac" || file.ext == "m4a" || file.ext == "mp3" || file.ext == "ogg" || file.ext == "wav" || file.ext == "webm" || file.ext == "3gp" || file.ext == "mkv" || file.ext == "mov" || file.ext == "mp4" || file.ext == "ogv" || file.ext == "pdf"
+    order:
+      - file.name
+      - formula.MB
+      - file.ctime
+      - file.backlinks
+    sort:
+      - property: file.ctime
+        direction: DESC
+      - property: file.mtime
+        direction: DESC
+      - property: file.name
+        direction: ASC
+    image: formula.cover
+    imageFit: ""
+    columnSize:
+      file.name: 354
+      file.ctime: 176

@@ -389,10 +389,7 @@ mod tests {
         links.insert_file(orphan_b.clone());
         links.insert_link(connected_a.clone(), connected_b.clone());
 
-        let observed: BTreeSet<PathBuf> = links
-            .iter_orphans()
-            .cloned()
-            .collect();
+        let observed: BTreeSet<PathBuf> = links.iter_orphans().cloned().collect();
         let expected = BTreeSet::from_iter([orphan_a, orphan_b]);
 
         assert_eq!(observed, expected);
@@ -431,6 +428,9 @@ mod tests {
 
         assert!(links.get(&orphan).is_none(), "expected orphan to be pruned");
         assert!(links.get(&source).is_some(), "non-orphan should remain");
-        assert!(links.get(&target).is_some(), "backlinked file should remain");
+        assert!(
+            links.get(&target).is_some(),
+            "backlinked file should remain"
+        );
     }
 }

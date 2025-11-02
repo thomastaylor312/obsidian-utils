@@ -166,10 +166,7 @@ mod tests {
         load_file(arena, encoded_file_path())
     }
 
-    fn load_file<'a>(
-        arena: &'a Arena<AstNode<'a>>,
-        path: PathBuf,
-    ) -> Result<ParsedFile<'a>> {
+    fn load_file<'a>(arena: &'a Arena<AstNode<'a>>, path: PathBuf) -> Result<ParsedFile<'a>> {
         let metadata = std::fs::metadata(&path)?;
         let ast = parser::parse_file(arena, &path)?;
         Ok(ParsedFile {

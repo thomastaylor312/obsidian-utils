@@ -53,6 +53,8 @@ A: See CODE_SNIPPETS.md → Integration Example: Tags Command
 - `crates/core/src/printer.rs` - Output formatting (144 lines)
 - `bins/tags/src/main.rs` - Tags example (267 lines)
 - `bins/links/src/main.rs` - Links example (182 lines)
+- `crates/bases/src/lib.rs` - `.base` file schema + YAML loader (Stage 1 complete)
+- `bins/bases/src/main.rs` - CLI for inspecting `.base` files
 
 ---
 
@@ -259,4 +261,3 @@ Each module is focused and testable in isolation.
 3. Show me example → See QUICK_REFERENCE.md or CODE_SNIPPETS.md
 4. What are the patterns? → See VAULT_READING_ARCHITECTURE.md
 5. Summary? → See IMPLEMENTATION_SUMMARY.txt
-

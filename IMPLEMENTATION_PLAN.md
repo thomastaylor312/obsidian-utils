@@ -15,10 +15,13 @@ This plan outlines the implementation of a new `obsidian-bases` crate and CLI to
 - Start with core subset of operators and functions (expandable later)
 
 **Key Integrations:**
-- Use `obsidian-core::reader::read_files()` for vault file reading
-- Use `obsidian-core::parser::parse_files()` for markdown parsing
-- Use `obsidian-core::frontmatter::parse_frontmatter()` for YAML frontmatter
+- Use `obsidian_core::reader::read_files()` for vault file reading
+- Use `obsidian_core::parser::parse_files()` for markdown parsing
+- Use `obsidian_core::frontmatter::parse_frontmatter()` for YAML frontmatter
 - Follow CLI patterns from `bins/tags/` and `bins/links/`
+- This project uses the following crates:
+  - `anyhow` for all error handling
+  - `serde_norway` for YAML parsing (drop in replacement for `serde_yaml`, which is deprecated)
 
 ---
 
@@ -40,8 +43,7 @@ crates/bases/
 ├── Cargo.toml
 └── src/
     ├── lib.rs
-    ├── schema.rs       # YAML data structures
-    └── error.rs        # Error types
+    └── schema.rs       # YAML data structures
 
 bins/bases/
 ├── Cargo.toml
@@ -122,11 +124,12 @@ pub enum ViewType {
 - `crates/bases/Cargo.toml` - Dependencies: serde, serde_yaml, anyhow
 - `crates/bases/src/lib.rs` - Public exports
 - `crates/bases/src/schema.rs` - YAML structs
-- `crates/bases/src/error.rs` - Error types
 - `bins/bases/Cargo.toml` - Minimal CLI dependencies
 - `bins/bases/src/main.rs` - Read file, deserialize, print debug
 
-**Status**: Not Started
+**Tests Executed**: `cargo test -p obsidian-bases`
+
+**Status**: Completed ✅
 
 ---
 
