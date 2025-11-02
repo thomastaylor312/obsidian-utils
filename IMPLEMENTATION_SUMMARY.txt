@@ -1,0 +1,361 @@
+================================================================================
+OBSIDIAN VAULT READING & MARKDOWN PARSING - IMPLEMENTATION SUMMARY
+================================================================================
+
+LOCATION OVERVIEW
+================================================================================
+
+Core Implementation Files:
+  1. /Users/oftaylor/Documents/code/obsidian-utils/crates/core/src/reader.rs
+     - File discovery from filesystem or stdin
+     - Lines 1-142
+
+  2. /Users/oftaylor/Documents/code/obsidian-utils/crates/core/src/parser.rs
+     - Markdown to AST conversion via comrak
+     - Lines 1-172
+
+  3. /Users/oftaylor/Documents/code/obsidian-utils/crates/core/src/frontmatter.rs
+     - YAML frontmatter extraction
+     - Lines 1-90
+
+  4. /Users/oftaylor/Documents/code/obsidian-utils/crates/core/src/printer.rs
+     - Output formatting (JSON/Binary/Plain)
+     - Lines 1-144
+
+  5. /Users/oftaylor/Documents/code/obsidian-utils/crates/core/src/lib.rs
+     - Module exports
+
+Usage Examples:
+  - /Users/oftaylor/Documents/code/obsidian-utils/bins/tags/src/main.rs
+  - /Users/oftaylor/Documents/code/obsidian-utils/bins/links/src/main.rs
+
+Data Structures:
+  - /Users/oftaylor/Documents/code/obsidian-utils/crates/links/src/lib.rs
+
+================================================================================
+STAGE 1: FILE READING
+================================================================================
+
+Entry Point: reader::ReaderOpts::read_files()
+
+Functions:
+  - read_files()        → Vec<FileEntry>  (lines 25-37)
+  - read_dir()          → Vec<FileEntry>  (lines 50-63) - recursive
+  - read_stdin()        → Vec<FileEntry>  (lines 65-80) - stdin input
+
+Key Structures:
+  FileEntry {
+    path: PathBuf,
+    metadata: Metadata,
+  }
+
+Behavior:
+  - Does NOT filter by extension
+  - Supports recursive directory traversal
+  - Can read from directory or stdin
+  - Returns all files (any type)
+
+Algorithm (read_dir):
+  1. Iterate directory entries
+  2. If directory and recurse: recursive call
+  3. If file: add to results
+  4. Ignore everything else
+
+================================================================================
+STAGE 2: MARKDOWN PARSING
+================================================================================
+
+Entry Point: parser::parse_files()
+
+Functions:
+  - parse_files()       → Iterator<Result<ParsedFile>>  (lines 54-74)
+  - parse_file()        → Result<&AstNode>               (lines 77-84)
+  - parse_content()     → &AstNode                        (lines 87-89)
+  - ignore_error_iter() → Iterator<ParsedFile>           (lines 38-49)
+
+Key Structures:
+  ParsedFile<'a> {
+    path: PathBuf,
+    metadata: Metadata,
+    ast: &'a AstNode<'a>,
+  }
+
+Behavior:
+  - FILTERS to .md files only (case-insensitive)
+  - Uses comrak (CommonMark parser)
+  - Returns lazy iterator
+  - Arena-based allocation
+
+Parse Options (PARSE_OPTIONS, lines 12-24):
+  - strikethrough: ~~text~~
+  - tables
+  - autolink
+  - footnotes
+  - front_matter_delimiter: "---"
+  - alerts
+  - wikilinks_title_after_pipe: [[file|title]]
+
+Algorithm (parse_files):
+  1. Filter: keep only .md files
+  2. For each file:
+     a. Read from disk
+     b. Parse with comrak
+     c. Wrap in ParsedFile
+  3. Return iterator of Results
+
+================================================================================
+STAGE 3: FRONTMATTER EXTRACTION
+================================================================================
+
+Entry Point: frontmatter::parse_frontmatter()
+
+Functions:
+  - parse_frontmatter()           → Iterator<(ParsedFile, Option<Frontmatter>)>  (lines 31-38)
+  - parse_frontmatter_from_ast()  → Option<Frontmatter>                          (lines 41-56)
+
+Key Structures:
+  Frontmatter {
+    tags: Option<Vec<String>>,
+    aliases: Option<Vec<String>>,
+    cssclasses: Option<Vec<String>>,
+    values: HashMap<String, serde_norway::Value>,
+  }
+
+Behavior:
+  - Deserializes YAML frontmatter
+  - Returns tuple with original ParsedFile
+  - Errors logged but don't fail pipeline
+  - Lazy iterator evaluation
+
+Algorithm (parse_frontmatter_from_ast):
+  1. Traverse AST nodes
+  2. Find first NodeValue::FrontMatter
+  3. Trim delimiters (---)
+  4. Deserialize with serde_norway::from_str()
+  5. Log on error, return None
+  6. Return first FM found
+
+Supported Format:
+  ---
+  tags: [tag1, tag2]
+  aliases: [alias1]
+  cssclasses: [class1]
+  customField: value
+  ---
+
+================================================================================
+KEY DEPENDENCIES
+================================================================================
+
+Crate           Version  Purpose
+----            -------  -------
+comrak          0.47     CommonMark parser with AST
+serde_norway    0.9.42   YAML deserialization
+serde           1.0.228  Serialization framework
+serde_json      1.0      JSON output
+ciborium        0.2.2    CBOR binary format
+anyhow          1.0.100  Error handling
+clap            4.5      CLI argument parsing
+log             0.4      Logging
+env_logger      0.11     Logger initialization
+
+================================================================================
+DATA FLOW
+================================================================================
+
+InputFiles (any extension)
+    ↓ (reader::read_files)
+    ↓ Returns: Vec<FileEntry>
+    ↓
+Filter to .md files only
+    ↓ (parser::parse_files)
+    ↓ Returns: Iterator<Result<ParsedFile>>
+    ↓
+Parse to AST via comrak
+    ↓ (comrak::parse_document)
+    ↓ Uses PARSE_OPTIONS with frontmatter support
+    ↓
+Extract frontmatter
+    ↓ (frontmatter::parse_frontmatter)
+    ↓ Returns: Iterator<(ParsedFile, Option<Frontmatter>)>
+    ↓
+Application logic (tags/links extraction, etc.)
+    ↓
+Output formatting
+    ↓ (printer::Format::Json/Binary/Plain)
+    ↓
+Output to stdout
+
+================================================================================
+MEMORY MANAGEMENT
+================================================================================
+
+Arena Allocation Pattern:
+  1. Create: Arena::with_capacity(entries.len())
+  2. Pass &'a arena to parse_files()
+  3. All AstNode values allocated in arena
+  4. ParsedFile holds &'a AstNode<'a>
+  5. Lifetime constraint: cannot outlive arena
+  6. Single deallocation when arena dropped
+
+Advantages:
+  - Fast allocation (arena style)
+  - No fragmentation
+  - Single cleanup
+  - Lifetime safety via Rust compiler
+
+Performance:
+  - Iterator-based (lazy evaluation)
+  - No premature Vec collection
+  - Files parsed only when iterated
+  - Individual file errors don't stop pipeline
+
+================================================================================
+ERROR HANDLING
+================================================================================
+
+Patterns:
+  1. anyhow::Result<T> for fallible operations
+  2. Log errors via log crate
+  3. ignore_error_iter() for graceful degradation
+  4. YAML parse errors logged but return None
+
+Examples:
+  - read_files() returns Result<Vec<FileEntry>>
+  - parse_files() returns Iterator<Result<ParsedFile>>
+  - parse_frontmatter_from_ast() returns Option<Frontmatter>
+
+Effect:
+  - One bad file doesn't stop processing
+  - Errors logged for debugging
+  - Application gets partial results
+
+================================================================================
+USAGE EXAMPLE (from bins/tags/src/main.rs:116-137)
+================================================================================
+
+fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+    env_logger::init();
+
+    // Stage 1: Read files
+    let entries = cli.read_opts.read_files()?;
+
+    // Stage 2: Create arena and parse
+    let arena = Arena::with_capacity(entries.len());
+    let parsed_files = parser::ignore_error_iter(
+        parser::parse_files(&arena, entries)
+    );
+
+    // Stage 3: Extract frontmatter
+    let parsed_with_fm = frontmatter::parse_frontmatter(parsed_files);
+
+    // Application logic
+    let tags = parsed_with_fm.fold(BTreeMap::new(), |mut acc, (pf, fm)| {
+        if let Some(fm) = fm {
+            for tag in fm.tags.unwrap_or_default() {
+                acc.entry(tag)
+                    .or_insert_with(TagInfo::new)
+                    .files
+                    .insert(pf.path.clone());
+            }
+        }
+        acc
+    });
+
+    // Output
+    let format = cli.printer.output;
+    let mut writer = std::io::stdout();
+    // ... format.print_structured(tags, &mut writer)?
+}
+
+================================================================================
+IMPORTANT NOTES
+================================================================================
+
+1. Extension Filtering:
+   - reader doesn't filter by extension
+   - parser DOES filter (.md only)
+   - Plan accordingly in pipelines
+
+2. Arena Lifetimes:
+   - ParsedFile<'a> lifetime tied to arena
+   - Cannot outlive the arena
+   - Compiler enforces this
+
+3. Frontmatter Optional:
+   - Not all files have frontmatter
+   - Check Option in pattern matching
+   - None means no frontmatter found
+
+4. Iterator Pattern:
+   - All major functions return iterators
+   - Enables lazy evaluation
+   - Can process large vaults efficiently
+   - No full Vec collection upfront
+
+5. Markdown Parsing:
+   - Comrak handles CommonMark + extensions
+   - Supports Obsidian wikilinks
+   - YAML frontmatter enabled
+   - Single parse pass (no intermediate formats)
+
+================================================================================
+TODO ITEMS IN CODE
+================================================================================
+
+1. reader.rs:45
+   "Figure out if we can turn this into an iter instead so we don't have
+    to allocate a big Vec of all entries before processing them"
+   Status: Known limitation, could improve memory scaling
+
+2. frontmatter.rs:8
+   "Figure out if we can dynamically generate a schema from the types.json
+    schema in the vault so we don't have to use serde_norway::Value everywhere"
+   Status: Known limitation, could improve type safety
+
+================================================================================
+TEST FIXTURES
+================================================================================
+
+Location: /Users/oftaylor/Documents/code/obsidian-utils/test-vault/
+
+Files:
+  - Test.md               (root level, has frontmatter with tags: [foo, bar])
+  - other/Other.md        (nested, tests recursive reading)
+  - notes.txt             (non-markdown, tests filtering)
+
+Used in:
+  - reader tests (recursion, filtering)
+  - parser tests (AST generation)
+  - frontmatter tests (YAML extraction)
+
+================================================================================
+ARCHITECTURAL PATTERNS
+================================================================================
+
+1. Composable Pipeline:
+   Reader → Parser → Extractor → Application
+   Each stage independent and reusable
+
+2. Iterator-based Processing:
+   Lazy evaluation for memory efficiency
+   Enable processing arbitrarily large vaults
+
+3. Error Gracefully Degradation:
+   Individual file errors don't stop pipeline
+   Logging for debugging
+
+4. Type Safety:
+   Rust compiler catches lifetime violations
+   Structured data (Frontmatter struct)
+   Type-checked YAML fields
+
+5. CLI Integration:
+   clap for argument parsing
+   ReaderOpts encapsulates reading behavior
+   PrinterArgs encapsulates output
+
+================================================================================
+END OF SUMMARY
+================================================================================
