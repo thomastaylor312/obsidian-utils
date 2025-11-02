@@ -1,7 +1,12 @@
 //! Library for working with Obsidian `.base` files.
 
+pub mod ast;
+pub mod error;
+pub mod parser;
+
 mod schema;
 
+pub use crate::error::ParseErrorInfo;
 pub use crate::schema::{BaseFile, FilterNode, PropertyConfig, View, ViewType};
 pub use anyhow::Result;
 

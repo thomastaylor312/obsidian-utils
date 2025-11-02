@@ -9,6 +9,7 @@ clap = { version = "4.5", features = ["derive"] }
 comrak = "0.47"
 env_logger = "0.11"
 log = "0.4"
+nom = "8.0"
 obsidian-core = { path = "crates/core" }
 obsidian-links = { path = "crates/links" }
 obsidian-bases = { path = "crates/bases" }

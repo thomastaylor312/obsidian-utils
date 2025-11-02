@@ -143,7 +143,7 @@ pub enum ViewType {
 - Parse operators: arithmetic (`+`, `-`, `*`, `/`, `%`), comparison (`==`, `!=`, `>`, `<`, `>=`, `<=`), boolean (`&&`, `||`, `!`)
 - Parse literals: strings (`"value"`), numbers (`42`, `3.14`), booleans (`true`, `false`)
 - Proper operator precedence and parentheses support
-- Helpful error messages with position information
+- Parse failures surface meaningful `nom` errors
 
 **Implementation Details**:
 
@@ -154,7 +154,8 @@ pub enum ViewType {
 pub enum Expr {
     // Literals
     String(String),
-    Number(f64),
+    Float(f64),
+    Integer(i64),
     Boolean(bool),
     Null,
 
@@ -227,7 +228,7 @@ pub enum UnaryOperator {
 
 ### Parser Implementation (parser.rs)
 
-Write a parser that leverages the `nom` crate (v8) for robust parsing
+- Build the parser with `nom` (v8) using explicit precedence-climbing loops for each operator tier, returning standard `nom` errors.
 
 **Operator Precedence** (highest to lowest):
 1. Primary (literals, properties, parentheses)
@@ -246,14 +247,16 @@ Write a parser that leverages the `nom` crate (v8) for robust parsing
 - Parse function calls: `hasTag("book")`, `if(price, "yes", "no")`
 - Parse complex expressions: `(price / age).toFixed(2)`, `status != "done" && price > 10`
 - Test operator precedence: `2 + 3 * 4` = `2 + (3 * 4)`
-- Test error reporting with position information
+- Enforce whitespace restrictions around function calls and member access (`functionName (arg)` → error)
 
 **Files to Create**:
 - `crates/bases/src/ast.rs` - AST data structures
 - `crates/bases/src/parser.rs` - Expression parser
 - `crates/bases/tests/parser_tests.rs` - Comprehensive parser tests
 
-**Status**: Not Started
+**Tests Executed**: `cargo test --package obsidian-bases`
+
+**Status**: Completed ✅
 
 ---
 
