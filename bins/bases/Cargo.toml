@@ -10,7 +10,10 @@ path = "src/main.rs"
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }
+comrak = { workspace = true }
 env_logger = { workspace = true }
 log = { workspace = true }
 obsidian-bases = { workspace = true }
+obsidian-core = { workspace = true }
+obsidian-links = { workspace = true }
 

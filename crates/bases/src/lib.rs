@@ -3,11 +3,15 @@
 pub mod ast;
 pub mod error;
 pub mod parser;
+pub mod prepared;
 
 mod schema;
 
 pub use crate::error::ParseErrorInfo;
-pub use crate::schema::{BaseFile, FilterNode, PropertyConfig, View, ViewType};
+pub use crate::prepared::{PreparedBase, PreparedFilter, PreparedView};
+pub use crate::schema::{
+    BaseFile, FilterNode, PropertyConfig, SortDirection, SortField, View, ViewType,
+};
 pub use anyhow::Result;
 
 use std::path::Path;

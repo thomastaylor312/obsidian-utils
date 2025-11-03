@@ -39,6 +39,8 @@ This plan outlines the implementation of a new `obsidian-bases` crate and CLI to
 
 ### Directory Structure
 ```
+
+- Add helpers such as `format_property_ref` to turn `PropertyRef` into canonical column ids and user-facing labels when rendering.
 crates/bases/
 ├── Cargo.toml
 └── src/
@@ -255,6 +257,86 @@ pub enum UnaryOperator {
 - `crates/bases/tests/parser_tests.rs` - Comprehensive parser tests
 
 **Tests Executed**: `cargo test --package obsidian-bases`
+
+**Status**: Completed ✅
+
+---
+
+## Stage 2a: BaseFile Preparation Layer
+
+**Goal**: Convert the deserialized `BaseFile` configuration into a `PreparedBase` structure where every string expression is parsed into an `Expr` from `crates/bases/src/ast.rs`.
+
+**Success Criteria**:
+- `PreparedBase` (and related structs) reuse `Expr` for all formula bodies, global filters, and view-level filters.
+- Conversion reports precise errors that identify the failing formula, view, or filter node.
+- Downstream stages (formula evaluation, view processing) can rely solely on the prepared structures without ad-hoc parsing.
+- Unit tests cover successful conversions and expected error scenarios.
+
+**Implementation Details**:
+
+### Data Structures (`prepared.rs`)
+
+```rust
+#[derive(Debug, Clone)]
+pub struct PreparedBase {
+    pub filters: Option<PreparedFilter>,
+    pub formulas: HashMap<String, Expr>,
+    pub properties: HashMap<String, PropertyConfig>,
+    pub views: Vec<PreparedView>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PreparedView {
+    pub r#type: ViewType,
+    pub name: Option<String>,
+    pub filters: Option<PreparedFilter>,
+    pub order: Vec<PropertyRef>,      // parsed property references
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone)]
+pub enum PreparedFilter {
+    And(Vec<PreparedFilter>),
+    Or(Vec<PreparedFilter>),
+    Not(Vec<PreparedFilter>),
+    Expr(Expr),
+}
+```
+
+- Reuse existing `PropertyRef` and `ViewType` where possible.
+- Store parsed expressions behind `Arc<Expr>` if cloning cost becomes a concern (optional optimization noted in documentation).
+
+### Conversion API (`from_base.rs`)
+
+- Implement `PreparedBase::try_from(BaseFile)` (that delegates to `prepare_base(base: BaseFile) -> Result<PreparedBase>`) that orchestrates the conversion.
+- Introduce private helper functions:
+  - `convert_filter_node(FilterNode) -> Result<PreparedFilter>`
+  - `parse_formula_map(HashMap<String, String>) -> Result<HashMap<String, Expr>>`
+  - `parse_order(Vec<String>) -> Result<Vec<PropertyRef>>` (reuse the parser's property reference logic for `order` entries).
+- Ensure conversions use Stage 2's parser: `parse_expression(&str) -> Result<Expr>` in `parser.rs`.
+
+### Error Handling
+
+- Wrap parse failures with contextual `anyhow::Context`, e.g., `"Failed to parse formula 'total': {err}"`.
+- Validate that view names are unique (surface friendly error if duplicates exist) to simplify later lookups.
+- Provide span information if the parser already exposes it; otherwise, include the original expression string in the error message.
+
+### Integration Notes
+
+- Update `crates/bases/src/lib.rs` to re-export `PreparedBase`, `PreparedView`, and `PreparedFilter`.
+- Stage 5+ modules should take `PreparedBase` instead of `BaseFile` wherever expressions are evaluated; document this expectation so later stages pick up the new types.
+- Leave the original `BaseFile` accessible for diagnostics (e.g., keep the original structure as a private field in `PreparedBase`).
+
+**Tests**:
+- Success case: convert a sample `BaseFile` containing global filters, formulas, and view filters; assert resulting `Expr` variants match expectations.
+- Failure case: invalid formula expression surfaces a descriptive error mentioning the formula name.
+- Failure case: invalid view filter expression identifies the view.
+- Order parsing: ensure `order: ["file.name", "formula.total"]` becomes `PropertyRef` instances.
+
+**Files to Create / Update**:
+- `crates/bases/src/prepared.rs` – prepared structures and conversion logic.
+- `crates/bases/src/lib.rs` – export the new API.
+- `crates/bases/tests/prepared_base_tests.rs` – unit tests for successful and failing conversions.
 
 **Status**: Completed ✅
 
@@ -522,6 +604,7 @@ impl Value {
 - Property resolution works (note.*, file.*, formula.*)
 - Filter evaluation is lazy where possible
 - Clear errors for invalid expressions
+- All evaluation works directly from `PreparedBase` / `PreparedFilter` without re-parsing strings
 
 **Implementation Details**:
 
@@ -539,8 +622,8 @@ pub struct EvalContext<'a> {
     // Formula values for this file (computed)
     pub formulas: HashMap<String, Value>,
 
-    // Base file configuration
-    pub base: &'a BaseFile,
+    // Prepared configuration (expressions already parsed)
+    pub base: &'a PreparedBase,
 }
 
 impl<'a> EvalContext<'a> {
@@ -630,43 +713,42 @@ impl Evaluator {
         }
     }
 
-    pub fn eval_filter(&self, filter: &FilterNode, ctx: &EvalContext) -> Result<bool> {
-        match filter {
-            FilterNode::And { and } => {
-                for child in and {
-                    if !self.eval_filter(child, ctx)? {
-                        return Ok(false);  // Short-circuit
-                    }
+pub fn eval_filter(&self, filter: &PreparedFilter, ctx: &EvalContext) -> Result<bool> {
+    match filter {
+        PreparedFilter::And(children) => {
+            for child in children {
+                if !self.eval_filter(child, ctx)? {
+                    return Ok(false);  // Short-circuit
                 }
-                Ok(true)
             }
+            Ok(true)
+        }
 
-            FilterNode::Or { or } => {
-                for child in or {
-                    if self.eval_filter(child, ctx)? {
-                        return Ok(true);  // Short-circuit
-                    }
+        PreparedFilter::Or(children) => {
+            for child in children {
+                if self.eval_filter(child, ctx)? {
+                    return Ok(true);  // Short-circuit
                 }
-                Ok(false)
             }
+            Ok(false)
+        }
 
-            FilterNode::Not { not } => {
-                // All must be false
-                for child in not {
-                    if self.eval_filter(child, ctx)? {
-                        return Ok(false);
-                    }
+        PreparedFilter::Not(children) => {
+            // All must be false
+            for child in children {
+                if self.eval_filter(child, ctx)? {
+                    return Ok(false);
                 }
-                Ok(true)
             }
+            Ok(true)
+        }
 
-            FilterNode::Expression(expr_str) => {
-                let expr = Parser::new(expr_str).parse_expr()?;
-                let result = self.eval_expr(&expr, ctx)?;
-                Ok(result.is_truthy())
-            }
+        PreparedFilter::Expr(expr) => {
+            let result = self.eval_expr(expr, ctx)?;
+            Ok(result.is_truthy())
         }
     }
+}
 }
 ```
 
@@ -677,10 +759,11 @@ impl Evaluator {
 - Nested filters: `and: [or: [...], not: [...]]`
 - Property access: `note.title`, `file.mtime`, `formula.computed`
 - Error handling: undefined property, type mismatch, invalid function
+- Integration: confirm evaluator consumes `PreparedFilter` trees directly (no runtime parsing)
 
 **Files to Create**:
-- `crates/bases/src/context.rs` - Evaluation context
-- `crates/bases/src/evaluator.rs` - Expression evaluator
+- `crates/bases/src/context.rs` - Evaluation context (holds `PreparedBase`)
+- `crates/bases/src/evaluator.rs` - Expression evaluator using `PreparedFilter`
 - `crates/bases/tests/evaluator_tests.rs` - Evaluation tests
 
 **Status**: Not Started
@@ -696,6 +779,7 @@ impl Evaluator {
 - Formula results are cached per file
 - Formulas can reference other formulas
 - Clear error on circular dependencies
+- Works with pre-parsed `Expr` values supplied by `PreparedBase`
 
 **Implementation Details**:
 
@@ -703,13 +787,13 @@ impl Evaluator {
 
 ```rust
 pub struct FormulaSet {
-    formulas: HashMap<String, String>,  // name -> expression
+    formulas: HashMap<String, Expr>,  // name -> parsed expression
     dependencies: HashMap<String, Vec<String>>,  // name -> depends on
     evaluation_order: Vec<String>,  // Topologically sorted
 }
 
 impl FormulaSet {
-    pub fn new(formulas: HashMap<String, String>) -> Result<Self> {
+    pub fn new(formulas: HashMap<String, Expr>) -> Result<Self> {
         let mut set = Self {
             formulas,
             dependencies: HashMap::new(),
@@ -723,9 +807,8 @@ impl FormulaSet {
     }
 
     fn analyze_dependencies(&mut self) -> Result<()> {
-        for (name, expr_str) in &self.formulas {
-            let expr = Parser::new(expr_str).parse_expr()?;
-            let deps = Self::extract_formula_refs(&expr);
+        for (name, expr) in &self.formulas {
+            let deps = Self::extract_formula_refs(expr);
             self.dependencies.insert(name.clone(), deps);
         }
         Ok(())
@@ -750,10 +833,9 @@ impl FormulaSet {
         let mut results = HashMap::new();
 
         for formula_name in &self.evaluation_order {
-            let expr_str = &self.formulas[formula_name];
-            let expr = Parser::new(expr_str).parse_expr()?;
+            let expr = &self.formulas[formula_name];
 
-            let value = evaluator.eval_expr(&expr, ctx)?;
+            let value = evaluator.eval_expr(expr, ctx)?;
             results.insert(formula_name.clone(), value.clone());
 
             // Update context so later formulas can reference this one
@@ -771,9 +853,10 @@ impl FormulaSet {
 - Detect circular dependency: `a: "b + 1"`, `b: "a + 1"` → Error
 - Formula referencing note property: `full_name: "firstName + ' ' + lastName"`
 - Formula with conditionals: `discount: 'if(price > 100, price * 0.1, 0)'`
+- Integration: drive `FormulaSet` from `PreparedBase::formulas`
 
 **Files to Create**:
-- `crates/bases/src/formulas.rs` - Formula dependency analysis and evaluation
+- `crates/bases/src/formulas.rs` - Formula dependency analysis and evaluation (consumes `HashMap<String, Expr>` from `PreparedBase`)
 - `crates/bases/tests/formula_tests.rs` - Formula tests
 
 **Status**: Not Started
@@ -790,6 +873,7 @@ impl FormulaSet {
 - Limit restricts result count
 - Four output formats work: table, json, csv, cbor
 - Table format uses `tabled` crate for dynamic columns
+- Uses `PreparedView` / `PreparedBase` data so all expressions arrive as AST nodes
 
 **Implementation Details**:
 
@@ -803,9 +887,9 @@ pub struct ViewProcessor {
 impl ViewProcessor {
     pub fn process_view(
         &self,
-        view: &View,
+        view: &PreparedView,
         vault_files: Vec<ParsedFile>,
-        base: &BaseFile,
+        base: &PreparedBase,
     ) -> Result<ViewResult> {
         // 1. Apply global filters
         let mut filtered: Vec<_> = vault_files
@@ -856,10 +940,10 @@ impl ViewProcessor {
         })
     }
 
-    fn compare_by_order(&self, a: &FileResult, b: &FileResult, order: &[String]) -> Ordering {
-        for prop_name in order {
-            let a_val = self.get_property_value(a, prop_name);
-            let b_val = self.get_property_value(b, prop_name);
+    fn compare_by_order(&self, a: &FileResult, b: &FileResult, order: &[PropertyRef]) -> Ordering {
+        for prop in order {
+            let a_val = self.get_property_value(a, prop);
+            let b_val = self.get_property_value(b, prop);
 
             match a_val.compare(&b_val) {
                 Ok(Ordering::Equal) => continue,
@@ -872,7 +956,7 @@ impl ViewProcessor {
 }
 
 pub struct ViewResult {
-    pub columns: Vec<String>,
+    pub columns: Vec<PropertyRef>, // render helpers convert to display strings
     pub rows: Vec<FileResult>,
 }
 
@@ -893,13 +977,13 @@ pub enum OutputFormat {
 }
 
 pub trait Formatter {
-    fn format(&self, result: &ViewResult, base: &BaseFile) -> Result<Vec<u8>>;
+    fn format(&self, result: &ViewResult, base: &PreparedBase) -> Result<Vec<u8>>;
 }
 
 // JSON Formatter
 pub struct JsonFormatter;
 impl Formatter for JsonFormatter {
-    fn format(&self, result: &ViewResult, base: &BaseFile) -> Result<Vec<u8>> {
+    fn format(&self, result: &ViewResult, base: &PreparedBase) -> Result<Vec<u8>> {
         let rows: Vec<_> = result.rows.iter()
             .map(|row| self.row_to_json(row, &result.columns, base))
             .collect();
@@ -911,7 +995,7 @@ impl Formatter for JsonFormatter {
 // CSV Formatter
 pub struct CsvFormatter;
 impl Formatter for CsvFormatter {
-    fn format(&self, result: &ViewResult, base: &BaseFile) -> Result<Vec<u8>> {
+    fn format(&self, result: &ViewResult, base: &PreparedBase) -> Result<Vec<u8>> {
         let mut wtr = csv::Writer::from_writer(vec![]);
 
         // Write header
@@ -935,7 +1019,7 @@ impl Formatter for CsvFormatter {
 // Table Formatter (using tabled)
 pub struct TableFormatter;
 impl Formatter for TableFormatter {
-    fn format(&self, result: &ViewResult, base: &BaseFile) -> Result<Vec<u8>> {
+    fn format(&self, result: &ViewResult, base: &PreparedBase) -> Result<Vec<u8>> {
         use tabled::{Table, Tabled};
 
         // Build rows as dynamic structures
@@ -970,7 +1054,7 @@ impl Formatter for TableFormatter {
 // CBOR Formatter
 pub struct CborFormatter;
 impl Formatter for CborFormatter {
-    fn format(&self, result: &ViewResult, base: &BaseFile) -> Result<Vec<u8>> {
+    fn format(&self, result: &ViewResult, base: &PreparedBase) -> Result<Vec<u8>> {
         let rows: Vec<_> = result.rows.iter()
             .map(|row| self.row_to_cbor(row, &result.columns, base))
             .collect();
@@ -984,17 +1068,18 @@ impl Formatter for CborFormatter {
 
 **Tests**:
 - View filtering: Apply view-specific filter on top of global filter
-- Ordering: Sort by multiple properties (file.name, then formula.price)
+- Ordering: Sort by multiple properties (file.name, then formula.price) using prepared property refs
 - Limit: Limit to 10 results
 - JSON output: Valid JSON array of objects
 - CSV output: Valid CSV with headers and data rows
 - Table output: Well-formatted ASCII table
 - CBOR output: Valid binary that deserializes correctly
 - Display names: Use propertyConfig.displayName when available
+- Prepared views: ensure `PreparedView` order/filter data flow into rendering without re-parsing
 
 **Files to Create**:
-- `crates/bases/src/view.rs` - View processing
-- `crates/bases/src/output.rs` - Output formatters
+- `crates/bases/src/view.rs` - View processing (operates on `PreparedBase`/`PreparedView`)
+- `crates/bases/src/output.rs` - Output formatters (render `PropertyRef` columns)
 - `crates/bases/tests/view_tests.rs` - View processing tests
 - `crates/bases/tests/output_tests.rs` - Formatter tests
 
@@ -1007,11 +1092,12 @@ impl Formatter for CborFormatter {
 **Goal**: Create the CLI binary that ties everything together.
 
 **Success Criteria**:
-- CLI accepts base file path and vault directory as arguments
+- CLI accepts base filepath and vault directory as arguments
 - Output format can be specified
 - CLI follows existing patterns from tags and links CLIs
 - Helpful error messages for user
 - Works end-to-end with real vault data
+- Preparation errors from Stage 2a bubble up with clear messaging
 
 **Implementation Details**:
 
@@ -1045,11 +1131,13 @@ fn main() -> anyhow::Result<()> {
     env_logger::init();
     let cli = Cli::parse();
 
-    // 1. Load and parse base file
+    // 1. Load, parse, and prepare base file (Stage 2a)
     let base_yaml = std::fs::read_to_string(&cli.base_file)
         .context("Failed to read base file")?;
-    let base: BaseFile = serde_yaml::from_str(&base_yaml)
+    let raw_base: BaseFile = serde_yaml::from_str(&base_yaml)
         .context("Failed to parse base file")?;
+    let base = prepare_base(raw_base)
+        .context("Failed to prepare base file (expression parsing)")?;
 
     // 2. Read vault files using obsidian-core
     let reader_opts = reader::ReaderOpts {
@@ -1077,7 +1165,7 @@ fn main() -> anyhow::Result<()> {
             .ok_or_else(|| anyhow::anyhow!("No views defined in base file"))?
     };
 
-    // 5. Process view
+    // 5. Process view with prepared structures
     let processor = ViewProcessor::new();
     let result = processor.process_view(view, files_with_frontmatter, &base)
         .context("Failed to process view")?;
@@ -1211,8 +1299,8 @@ Each stage should have comprehensive tests:
    - Create test base file
    - Run CLI and verify output
 
-4. **Test data**: Create reusable test fixtures
-   - `tests/fixtures/vault/` - Small test vault
+4. **Test data**: Create or use test fixtures
+   - `test-vault/` - Existing test vault at project root
    - `tests/fixtures/bases/` - Various base file examples
 
 ---
@@ -1223,15 +1311,17 @@ Follow these stages in order. Each stage builds on previous stages:
 
 1. **Stage 1**: Foundation - can deserialize base files
 2. **Stage 2**: Parser - can parse expressions into AST
-3. **Stage 3**: Types - can represent runtime values
-4. **Stage 4**: Functions - can execute operations
-5. **Stage 5**: Filters - can evaluate filters against files
-6. **Stage 6**: Formulas - can compute formulas
-7. **Stage 7**: Views - can process and format views
-8. **Stage 8**: CLI - user-facing interface
+3. **Stage 2a**: Prepared base - config expressions converted to `Expr`
+4. **Stage 3**: Types - can represent runtime values
+5. **Stage 4**: Functions - can execute operations
+6. **Stage 5**: Filters - can evaluate filters against files
+7. **Stage 6**: Formulas - can compute formulas
+8. **Stage 7**: Views - can process and format views
+9. **Stage 8**: CLI - user-facing interface
 
 **Key Checkpoints**:
 - After Stage 2: Can parse any valid expression
+- After Stage 2a: Config expressions parsed up-front into AST
 - After Stage 4: Can execute simple expressions
 - After Stage 5: Can filter vault files
 - After Stage 8: Full working CLI

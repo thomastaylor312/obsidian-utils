@@ -85,9 +85,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "comrak",
  "env_logger",
  "log",
  "obsidian-bases",
+ "obsidian-core",
+ "obsidian-links",
 ]
 
 [[package]]
