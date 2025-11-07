@@ -347,7 +347,7 @@ pub enum PreparedFilter {
 **Goal**: Implement runtime value types that expressions evaluate to.
 
 **Success Criteria**:
-- Value enum supports all Bases types: String, Number, Boolean, Date, List, Object, File, Link
+- Value enum supports all Bases types: String, Integer, Float, Boolean, Date, DateTime, Duration, List, Object, File, Link
 - Type conversion and coercion work correctly
 - Values are comparable and support arithmetic operations
 - Proper null/empty handling
@@ -361,10 +361,12 @@ pub enum PreparedFilter {
 pub enum Value {
     Null,
     String(String),
-    Number(f64),
+    Integer(i64),
+    Float(f64),
     Boolean(bool),
-    Date(DateTime),
-    Duration(Duration),
+    Date(chrono::NaiveDate),
+    DateTime(chrono::DateTime<chrono::Utc>),
+    Duration(chrono::Duration),
     List(Vec<Value>),
     Object(HashMap<String, Value>),
     File(FileValue),
@@ -387,12 +389,6 @@ impl Value {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct DateTime {
-    pub timestamp: i64,  // milliseconds since epoch
-    pub has_time: bool,  // true for datetime, false for date-only
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub struct FileValue {
     pub path: PathBuf,
     // Cached properties loaded lazily
@@ -411,9 +407,12 @@ pub struct LinkValue {
 impl Value {
     pub fn add(&self, other: &Value) -> Result<Value> {
         match (self, other) {
-            (Value::Number(a), Value::Number(b)) => Ok(Value::Number(a + b)),
+            (Value::Integer(a), Value::Integer(b)) => Ok(Value::Integer(a + b)),
+            (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
             (Value::String(a), Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
-            (Value::Date(d), Value::Duration(dur)) => Ok(Value::Date(d.add_duration(dur))),
+            (Value::Date(d), Value::Duration(dur)) => {
+                // Use chrono helpers to add signed duration, returning Value::Date
+            }
             _ => Err(TypeError::InvalidOperation("add", self.type_name(), other.type_name())),
         }
     }
@@ -424,23 +423,27 @@ impl Value {
 
 **Tests**:
 - Type conversions: `Value::String("123").to_number()` = `123.0`
-- Arithmetic: `Number(5) + Number(3)` = `Number(8)`
+- Integer arithmetic: `Integer(5) + Integer(3)` = `Integer(8)`
+- Mixed arithmetic: `Float(2.5) + Integer(2)` = `Float(4.5)`
 - String concatenation: `String("a") + String("b")` = `String("ab")`
 - Date arithmetic: `Date + Duration("1d")`
-- Comparisons: `Number(5) > Number(3)` = `true`
-- List operations: `List([1, 2]).contains(Number(2))` = `true`
-- Truthy evaluation: `Number(0)` is falsy, `String("")` is falsy
+- Comparisons: `Integer(5) > Float(3.0)` = `true`
+- List operations: `List([Integer(1), Float(2.0)]).contains(Float(2.0))` = `true`
+- Truthy evaluation: `Integer(0)` is falsy, `String("")` is falsy
 
 **Files to Create**:
-- `crates/bases/src/value.rs` - Value type and operations
-- `crates/bases/src/datetime.rs` - Date/time handling
+- `crates/bases/src/value.rs` - Value type and operations (including chrono date/datetime support)
 - `crates/bases/tests/value_tests.rs` - Value operation tests
 
-**Status**: Not Started
+**Status**: Completed ✅
+- Implemented `value.rs` with runtime `Value` enum (distinct integer and float variants), chrono-backed date/datetime/duration support, conversions, arithmetic, and comparison helpers.
+- Created `tests/value_tests.rs` exercising conversions, truthiness, list containment, and date/datetime math.
 
 ---
 
 ## Stage 4: Core Operators and Functions (Subset)
+
+Before implementing the functions described in this stage, make sure to read `Functions.md` in its entirety and validate that the functions described there match the ones below. Ensure any implementations match the behavior described in that document 
 
 **Goal**: Implement the essential subset of operators and built-in functions.
 
@@ -475,7 +478,7 @@ impl Value {
 - `string.split(separator)` - Split into list
 - `string.length` - Length field
 
-### Number Methods
+### Numeric Methods
 - `number.toFixed(precision)` - Format with decimals
 - `number.round(digits?)` - Round to integer or decimal places
 - `number.abs()` - Absolute value
@@ -559,8 +562,8 @@ impl Value {
                 Ok(Value::String(s.to_lowercase()))
             }
 
-            // Number methods
-            (Value::Number(n), "toFixed") => {
+            // Numeric methods
+            (Value::Float(n), "toFixed") => {
                 let precision = args.get(0).ok_or(...)?.as_number()? as usize;
                 Ok(Value::String(format!("{:.prec$}", n, prec = precision)))
             }
@@ -581,7 +584,7 @@ impl Value {
 - Global functions: `if(true, "yes", "no")` = `"yes"`
 - File methods: `file.hasTag("book")` on file with `#book` tag = `true`
 - String methods: `"hello".contains("ell")` = `true`
-- Number methods: `(3.14159).toFixed(2)` = `"3.14"`
+- Numeric methods: `(3.14159).toFixed(2)` = `"3.14"`
 - List methods: `[1, 2, 3].contains(2)` = `true`
 - Date functions: `now().format("YYYY-MM-DD")` produces valid date string
 
@@ -650,7 +653,7 @@ impl<'a> EvalContext<'a> {
             Some("name") => Ok(Value::String(self.file.name().to_string())),
             Some("path") => Ok(Value::String(self.file.path().to_string_lossy().to_string())),
             Some("ext") => Ok(Value::String(self.file.extension())),
-            Some("size") => Ok(Value::Number(self.file.size() as f64)),
+            Some("size") => Ok(Value::Integer(self.file.size() as i64)),
             Some("mtime") => Ok(Value::Date(DateTime::from_timestamp(self.file.mtime()))),
             Some("ctime") => Ok(Value::Date(DateTime::from_timestamp(self.file.ctime()))),
             Some("tags") => Ok(self.get_file_tags()),
@@ -674,7 +677,8 @@ impl Evaluator {
     pub fn eval_expr(&self, expr: &Expr, ctx: &EvalContext) -> Result<Value> {
         match expr {
             Expr::String(s) => Ok(Value::String(s.clone())),
-            Expr::Number(n) => Ok(Value::Number(*n)),
+            Expr::Float(n) => Ok(Value::Float(*n)),
+            Expr::Integer(n) => Ok(Value::Integer(*n)),
             Expr::Boolean(b) => Ok(Value::Boolean(*b)),
             Expr::Null => Ok(Value::Null),
 

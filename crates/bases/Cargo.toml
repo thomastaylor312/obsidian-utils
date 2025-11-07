@@ -8,3 +8,4 @@ anyhow = { workspace = true }
 serde = { workspace = true }
 serde_norway = { workspace = true }
 nom = { workspace = true }
+chrono = { workspace = true }

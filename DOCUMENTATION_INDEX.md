@@ -55,6 +55,7 @@ A: See CODE_SNIPPETS.md → Integration Example: Tags Command
 - `bins/links/src/main.rs` - Links example (182 lines)
 - `crates/bases/src/lib.rs` - `.base` file schema + YAML loader (Stage 1 complete)
 - `crates/bases/src/parser.rs` - Expression parser (Stage 2 complete)
+- `crates/bases/src/value.rs` - Runtime value system with chrono-based date/datetime handling (Stage 3 complete)
 - `bins/bases/src/main.rs` - CLI for inspecting `.base` files
 
 ---

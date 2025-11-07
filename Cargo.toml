@@ -19,3 +19,4 @@ serde_norway = "0.9.42"
 tabled = { version = "0.20.0", features = ["derive"] }
 url = "2"
 urlencoding = "2.1"
+chrono = "0.4"
