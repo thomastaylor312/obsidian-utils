@@ -5,7 +5,10 @@ edition = "2024"
 
 [dependencies]
 anyhow = { workspace = true }
+chrono = { workspace = true }
+nom = { workspace = true }
+obsidian-core = { workspace = true }
+obsidian-links = { workspace = true }
 serde = { workspace = true }
 serde_norway = { workspace = true }
-nom = { workspace = true }
-chrono = { workspace = true }
+thiserror = { workspace = true }

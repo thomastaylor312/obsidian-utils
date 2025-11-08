@@ -7,16 +7,27 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{self, Display};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use chrono::{DateTime as ChronoDateTime, Duration as ChronoDuration, NaiveDate, Utc};
+use chrono::Duration;
 
-/// Public date alias used by value consumers.
-pub type ValueDate = NaiveDate;
-/// Public datetime alias used by value consumers.
-pub type ValueDateTime = ChronoDateTime<Utc>;
+mod date;
+mod fields;
+mod file;
+mod list;
+mod moment_format;
+mod number;
+mod string;
+
+pub use date::*;
+pub use fields::*;
+pub use file::*;
+pub use list::*;
+pub use number::*;
+pub use string::*;
+
 /// Public duration alias used by value consumers.
-pub type ValueDuration = ChronoDuration;
+pub type ValueDuration = Duration;
 
 /// Result type used for value operations.
 pub type ValueResult<T> = Result<T, ValueError>;
@@ -25,14 +36,12 @@ pub type ValueResult<T> = Result<T, ValueError>;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Null,
-    String(String),
-    Integer(i64),
-    Float(f64),
+    String(StringValue),
+    Number(NumberValue),
     Boolean(bool),
-    Date(ValueDate),
-    DateTime(ValueDateTime),
+    DateTime(DateValue),
     Duration(ValueDuration),
-    List(Vec<Value>),
+    List(ListValue),
     Object(HashMap<String, Value>),
     File(FileValue),
     Link(LinkValue),
@@ -43,13 +52,11 @@ impl Display for Value {
         match self {
             Value::Null => write!(f, "null"),
             Value::String(text) => write!(f, "{text}"),
-            Value::Integer(value) => write!(f, "{value}"),
             // NOTE: We might want to format infinity differently in the future than its current
             // `inf` representation.
-            Value::Float(number) => write!(f, "{number}"),
+            Value::Number(number) => write!(f, "{}", number.value),
             Value::Boolean(value) => write!(f, "{value}"),
-            Value::Date(date) => write!(f, "{}", date.format("%Y-%m-%d")),
-            Value::DateTime(datetime) => write!(f, "{}", datetime.to_rfc3339()),
+            Value::DateTime(datetime) => write!(f, "{}", datetime.value),
             Value::Duration(duration) => write!(f, "{duration}"),
             Value::List(items) => {
                 let rendered: Vec<String> = items.iter().map(|item| item.to_string()).collect();
@@ -63,7 +70,7 @@ impl Display for Value {
                 rendered.sort();
                 write!(f, "{{{}}}", rendered.join(", "))
             }
-            Value::File(file) => file.path.display().fmt(f),
+            Value::File(file) => file.value.path.display().fmt(f),
             Value::Link(link) => write!(f, "{link}"),
         }
     }
@@ -75,10 +82,8 @@ impl Value {
         match self {
             Value::Null => "null",
             Value::String(_) => "string",
-            Value::Integer(_) => "integer",
-            Value::Float(_) => "float",
+            Value::Number(_) => "number",
             Value::Boolean(_) => "boolean",
-            Value::Date(_) => "date",
             Value::DateTime(_) => "datetime",
             Value::Duration(_) => "duration",
             Value::List(_) => "list",
@@ -93,12 +98,11 @@ impl Value {
         match self {
             Value::Null => false,
             Value::Boolean(value) => *value,
-            Value::Integer(value) => *value != 0,
-            Value::Float(number) => !number.is_nan() && *number != 0.0,
+            Value::Number(number) => !number.value.is_nan() && number.value != 0.0,
             Value::String(text) => !text.is_empty(),
-            Value::Date(_) | Value::DateTime(_) => true,
+            Value::DateTime(_) => true,
             Value::Duration(duration) => !duration.is_zero(),
-            Value::List(items) => !items.is_empty(),
+            Value::List(items) => !items.value.is_empty(),
             Value::Object(entries) => !entries.is_empty(),
             Value::File(_) => true,
             Value::Link(_) => true,
@@ -110,11 +114,10 @@ impl Value {
         match self {
             Value::Null => true,
             Value::String(text) => text.is_empty(),
-            Value::List(items) => items.is_empty(),
+            Value::List(items) => items.value.is_empty(),
             Value::Object(entries) => entries.is_empty(),
             Value::Duration(duration) => duration.is_zero(),
-            Value::Integer(value) => *value == 0,
-            Value::Float(number) => number.abs() <= f64::EPSILON,
+            Value::Number(number) => number.value.abs() <= f64::EPSILON,
             _ => false,
         }
     }
@@ -128,22 +131,17 @@ impl Value {
     pub fn compare(&self, other: &Value) -> ValueResult<Ordering> {
         match (self, other) {
             (Value::Null, Value::Null) => Ok(Ordering::Equal),
-            (Value::Integer(a), Value::Integer(b)) => Ok(a.cmp(b)),
-            (Value::Float(a), Value::Float(b)) => {
-                a.partial_cmp(b).ok_or(ValueError::InvalidComparison {
-                    left: "float",
-                    right: "float",
-                })
-            }
-            (Value::Integer(_), Value::Float(_)) | (Value::Float(_), Value::Integer(_)) => {
-                let lhs = NumericValue::from_value(self).unwrap();
-                let rhs = NumericValue::from_value(other).unwrap();
-                lhs.partial_cmp(rhs)
+            (Value::Number(a), Value::Number(b)) => {
+                a.value
+                    .partial_cmp(&b.value)
+                    .ok_or(ValueError::InvalidComparison {
+                        left: self.type_name(),
+                        right: self.type_name(),
+                    })
             }
             (Value::String(a), Value::String(b)) => Ok(a.cmp(b)),
             (Value::Boolean(a), Value::Boolean(b)) => Ok(a.cmp(b)),
-            (Value::Date(a), Value::Date(b)) => Ok(a.cmp(b)),
-            (Value::DateTime(a), Value::DateTime(b)) => Ok(a.cmp(b)),
+            (Value::DateTime(a), Value::DateTime(b)) => Ok(a.value.cmp(&b.value)),
             (Value::Duration(a), Value::Duration(b)) => Ok(a.cmp(b)),
             _ => Err(ValueError::Type(TypeError::InvalidOperation {
                 op: "compare",
@@ -156,25 +154,16 @@ impl Value {
     /// Returns whether two values are equal, recursively comparing nested values.
     pub fn equals(&self, other: &Value) -> bool {
         match (self, other) {
-            (Value::Integer(a), Value::Integer(b)) => a == b,
-            (Value::Float(a), Value::Float(b)) => {
-                if a.is_nan() && b.is_nan() {
+            (Value::Number(a), Value::Number(b)) => {
+                if a.value.is_nan() && b.value.is_nan() {
                     true
                 } else {
-                    a == b
+                    a.value == b.value
                 }
             }
-            (Value::Integer(_), Value::Float(_)) | (Value::Float(_), Value::Integer(_)) => {
-                let lhs = NumericValue::from_value(self).unwrap();
-                let rhs = NumericValue::from_value(other).unwrap();
-                lhs.equals(rhs)
-            }
-            (Value::Date(a), Value::Date(b)) => a == b,
             (Value::DateTime(a), Value::DateTime(b)) => a == b,
             (Value::Duration(a), Value::Duration(b)) => a == b,
-            (Value::List(a), Value::List(b)) => {
-                a.len() == b.len() && a.iter().zip(b.iter()).all(|(lhs, rhs)| lhs.equals(rhs))
-            }
+            (Value::List(a), Value::List(b)) => a.value == b.value,
             (Value::Object(a), Value::Object(b)) => {
                 if a.len() != b.len() {
                     return false;
@@ -191,28 +180,17 @@ impl Value {
     /// Adds two values together, performing type-specific logic.
     pub fn add(&self, other: &Value) -> ValueResult<Value> {
         match (self, other) {
-            (Value::String(a), Value::String(b)) => Ok(Value::String(format!("{a}{b}"))),
-            (Value::Date(date), Value::Duration(duration)) => {
-                match date.checked_add_signed(*duration) {
-                    Some(result) => Ok(Value::Date(result)),
-                    None => Err(ValueError::Message(
-                        "resulting date is out of range".to_string(),
-                    )),
-                }
+            (Value::String(a), Value::String(b)) => {
+                Ok(Value::String(StringValue::new(format!("{a}{b}"))))
             }
-            (Value::DateTime(datetime), Value::Duration(duration)) => {
-                Ok(Value::DateTime(*datetime + *duration))
-            }
-            (Value::Duration(duration), Value::Date(date)) => {
-                Value::Date(*date).add(&Value::Duration(*duration))
-            }
-            (Value::Duration(duration), Value::DateTime(datetime)) => {
-                Value::DateTime(*datetime).add(&Value::Duration(*duration))
+            (Value::DateTime(datetime), Value::Duration(duration))
+            | (Value::Duration(duration), Value::DateTime(datetime)) => {
+                Ok(Value::DateTime(DateValue::new(*datetime.value + *duration)))
             }
             (Value::Duration(a), Value::Duration(b)) => Ok(Value::Duration(*a + *b)),
             _ => {
                 if let Some((lhs, rhs)) = numeric_pair(self, other) {
-                    Ok(lhs.add(rhs))
+                    Ok(Value::Number(NumberValue::new(lhs + rhs)))
                 } else {
                     Err(ValueError::Type(TypeError::InvalidOperation {
                         op: "add",
@@ -227,25 +205,21 @@ impl Value {
     /// Subtracts one value from another.
     pub fn sub(&self, other: &Value) -> ValueResult<Value> {
         match (self, other) {
-            (Value::Date(date), Value::Duration(duration)) => {
-                match date.checked_sub_signed(*duration) {
-                    Some(result) => Ok(Value::Date(result)),
+            (Value::DateTime(date), Value::Duration(duration)) => {
+                match date.value.checked_sub_signed(*duration) {
+                    Some(result) => Ok(Value::DateTime(DateValue::new(result))),
                     None => Err(ValueError::Message(
                         "resulting date is out of range".to_string(),
                     )),
                 }
             }
-            (Value::Date(a), Value::Date(b)) => Ok(Value::Duration(a.signed_duration_since(*b))),
-            (Value::DateTime(datetime), Value::Duration(duration)) => {
-                Ok(Value::DateTime(*datetime - *duration))
-            }
             (Value::DateTime(a), Value::DateTime(b)) => {
-                Ok(Value::Duration(a.signed_duration_since(*b)))
+                Ok(Value::Duration(a.value.signed_duration_since(*b.value)))
             }
             (Value::Duration(a), Value::Duration(b)) => Ok(Value::Duration(*a - *b)),
             _ => {
                 if let Some((lhs, rhs)) = numeric_pair(self, other) {
-                    Ok(lhs.sub(rhs))
+                    Ok(Value::Number(NumberValue::new(lhs - rhs)))
                 } else {
                     Err(ValueError::Type(TypeError::InvalidOperation {
                         op: "sub",
@@ -260,7 +234,7 @@ impl Value {
     /// Multiplies values together.
     pub fn mul(&self, other: &Value) -> ValueResult<Value> {
         if let Some((lhs, rhs)) = numeric_pair(self, other) {
-            Ok(lhs.mul(rhs))
+            Ok(Value::Number(NumberValue::new(lhs * rhs)))
         } else {
             Err(ValueError::Type(TypeError::InvalidOperation {
                 op: "mul",
@@ -273,7 +247,15 @@ impl Value {
     /// Divides one value by another.
     pub fn div(&self, other: &Value) -> ValueResult<Value> {
         if let Some((lhs, rhs)) = numeric_pair(self, other) {
-            lhs.div(rhs)
+            if rhs == 0.0 {
+                Err(ValueError::Type(TypeError::InvalidOperation {
+                    op: "div",
+                    left: self.type_name(),
+                    right: other.type_name(),
+                }))
+            } else {
+                Ok(Value::Number(NumberValue::new(lhs / rhs)))
+            }
         } else {
             Err(ValueError::Type(TypeError::InvalidOperation {
                 op: "div",
@@ -286,7 +268,15 @@ impl Value {
     /// Computes the remainder of dividing two values.
     pub fn rem(&self, other: &Value) -> ValueResult<Value> {
         if let Some((lhs, rhs)) = numeric_pair(self, other) {
-            lhs.rem(rhs)
+            if rhs == 0.0 {
+                Err(ValueError::Type(TypeError::InvalidOperation {
+                    op: "mod",
+                    left: self.type_name(),
+                    right: other.type_name(),
+                }))
+            } else {
+                Ok(Value::Number(NumberValue::new(lhs % rhs)))
+            }
         } else {
             Err(ValueError::Type(TypeError::InvalidOperation {
                 op: "mod",
@@ -299,11 +289,7 @@ impl Value {
     /// Negates numeric or duration values.
     pub fn negate(&self) -> ValueResult<Value> {
         match self {
-            Value::Integer(value) => match value.checked_neg() {
-                Some(negated) => Ok(Value::Integer(negated)),
-                None => Ok(Value::Float(-(*value as f64))),
-            },
-            Value::Float(value) => Ok(Value::Float(-value)),
+            Value::Number(value) => Ok(Value::Number(NumberValue::new(-value.value))),
             Value::Duration(duration) => Ok(Value::Duration(-*duration)),
             _ => Err(ValueError::Type(TypeError::InvalidUnary {
                 op: "neg",
@@ -324,7 +310,7 @@ impl Value {
     pub fn len(&self) -> ValueResult<usize> {
         match self {
             Value::String(text) => Ok(text.chars().count()),
-            Value::List(items) => Ok(items.len()),
+            Value::List(items) => Ok(items.value.len()),
             Value::Object(entries) => Ok(entries.len()),
             _ => Err(ValueError::Type(TypeError::InvalidUnary {
                 op: "len",
@@ -338,7 +324,7 @@ impl Value {
         match self {
             Value::List(items) => Ok(items.iter().any(|item| item.equals(needle))),
             Value::String(text) => Ok(match needle {
-                Value::String(sub) => text.contains(sub),
+                Value::String(sub) => text.value.contains(sub.value.as_ref()),
                 _ => false,
             }),
             _ => Err(ValueError::Type(TypeError::InvalidOperation {
@@ -346,33 +332,6 @@ impl Value {
                 left: self.type_name(),
                 right: needle.type_name(),
             })),
-        }
-    }
-}
-
-/// Metadata for a file value.
-#[derive(Debug, Clone)]
-pub struct FileValue {
-    pub path: PathBuf,
-    pub metadata: std::fs::Metadata,
-    // TODO: Possibly add tags and links here
-}
-
-impl PartialEq for FileValue {
-    fn eq(&self, other: &Self) -> bool {
-        // For now we're only comparing the path, since the metadata is not guaranteed to be the same.
-        // For purposes of what we're doing here, each file path should be unique within the value,
-        // so this is the only comparison we care about
-        self.path == other.path
-    }
-}
-
-impl FileValue {
-    /// Creates a file value from a path-like value.
-    pub fn new(path: impl AsRef<Path>, metadata: std::fs::Metadata) -> Self {
-        Self {
-            path: path.as_ref().into(),
-            metadata,
         }
     }
 }
@@ -474,140 +433,40 @@ impl fmt::Display for TypeError {
 
 impl std::error::Error for TypeError {}
 
-fn numeric_pair(left: &Value, right: &Value) -> Option<(NumericValue, NumericValue)> {
-    Some((
-        NumericValue::from_value(left)?,
-        NumericValue::from_value(right)?,
-    ))
+// Convenience From implementations for Value
+impl From<f64> for Value {
+    fn from(value: f64) -> Self {
+        Value::Number(NumberValue::new(value))
+    }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum NumericValue {
-    Integer(i64),
-    Float(f64),
+impl From<i64> for Value {
+    fn from(value: i64) -> Self {
+        Value::Number(NumberValue::new(value as f64))
+    }
 }
 
-impl NumericValue {
-    fn from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::Integer(v) => Some(NumericValue::Integer(*v)),
-            Value::Float(v) => Some(NumericValue::Float(*v)),
-            _ => None,
-        }
+impl From<bool> for Value {
+    fn from(value: bool) -> Self {
+        Value::Boolean(value)
     }
+}
 
-    fn as_f64(self) -> f64 {
-        match self {
-            NumericValue::Integer(v) => v as f64,
-            NumericValue::Float(v) => v,
-        }
+impl From<String> for Value {
+    fn from(value: String) -> Self {
+        Value::String(StringValue::new(value))
     }
+}
 
-    fn add(self, other: NumericValue) -> Value {
-        match (self, other) {
-            (NumericValue::Integer(a), NumericValue::Integer(b)) => match a.checked_add(b) {
-                Some(sum) => Value::Integer(sum),
-                None => Value::Float(a as f64 + b as f64),
-            },
-            _ => Value::Float(self.as_f64() + other.as_f64()),
-        }
+impl From<&str> for Value {
+    fn from(value: &str) -> Self {
+        Value::String(StringValue::new(value.to_string()))
     }
+}
 
-    fn sub(self, other: NumericValue) -> Value {
-        match (self, other) {
-            (NumericValue::Integer(a), NumericValue::Integer(b)) => match a.checked_sub(b) {
-                Some(diff) => Value::Integer(diff),
-                None => Value::Float(a as f64 - b as f64),
-            },
-            _ => Value::Float(self.as_f64() - other.as_f64()),
-        }
-    }
-
-    fn mul(self, other: NumericValue) -> Value {
-        match (self, other) {
-            (NumericValue::Integer(a), NumericValue::Integer(b)) => match a.checked_mul(b) {
-                Some(product) => Value::Integer(product),
-                None => Value::Float((a as f64) * (b as f64)),
-            },
-            _ => Value::Float(self.as_f64() * other.as_f64()),
-        }
-    }
-
-    fn div(self, other: NumericValue) -> ValueResult<Value> {
-        if other.is_zero() {
-            return Err(ValueError::Type(TypeError::InvalidOperation {
-                op: "div",
-                left: self.type_name(),
-                right: other.type_name(),
-            }));
-        }
-
-        match (self, other) {
-            (NumericValue::Integer(a), NumericValue::Integer(b)) => {
-                if a % b == 0 {
-                    Ok(Value::Integer(a / b))
-                } else {
-                    Ok(Value::Float(a as f64 / b as f64))
-                }
-            }
-            _ => Ok(Value::Float(self.as_f64() / other.as_f64())),
-        }
-    }
-
-    fn rem(self, other: NumericValue) -> ValueResult<Value> {
-        if other.is_zero() {
-            return Err(ValueError::Type(TypeError::InvalidOperation {
-                op: "mod",
-                left: self.type_name(),
-                right: other.type_name(),
-            }));
-        }
-
-        match (self, other) {
-            (NumericValue::Integer(a), NumericValue::Integer(b)) => Ok(Value::Integer(a % b)),
-            _ => Ok(Value::Float(self.as_f64() % other.as_f64())),
-        }
-    }
-
-    fn partial_cmp(self, other: NumericValue) -> ValueResult<Ordering> {
-        match (self, other) {
-            (NumericValue::Integer(a), NumericValue::Integer(b)) => Ok(a.cmp(&b)),
-            _ => self
-                .as_f64()
-                .partial_cmp(&other.as_f64())
-                .ok_or(ValueError::InvalidComparison {
-                    left: self.type_name(),
-                    right: other.type_name(),
-                }),
-        }
-    }
-
-    fn equals(self, other: NumericValue) -> bool {
-        match (self, other) {
-            (NumericValue::Integer(a), NumericValue::Integer(b)) => a == b,
-            _ => {
-                let lhs = self.as_f64();
-                let rhs = other.as_f64();
-                if lhs.is_nan() && rhs.is_nan() {
-                    true
-                } else {
-                    lhs == rhs
-                }
-            }
-        }
-    }
-
-    fn is_zero(self) -> bool {
-        match self {
-            NumericValue::Integer(v) => v == 0,
-            NumericValue::Float(v) => v == 0.0,
-        }
-    }
-
-    fn type_name(self) -> &'static str {
-        match self {
-            NumericValue::Integer(_) => "integer",
-            NumericValue::Float(_) => "float",
-        }
+fn numeric_pair(left: &Value, right: &Value) -> Option<(f64, f64)> {
+    match (left, right) {
+        (Value::Number(lhs), Value::Number(rhs)) => Some((lhs.value, rhs.value)),
+        _ => None,
     }
 }

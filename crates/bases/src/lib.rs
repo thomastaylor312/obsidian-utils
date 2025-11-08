@@ -2,6 +2,7 @@
 
 pub mod ast;
 pub mod error;
+pub mod functions;
 pub mod parser;
 pub mod prepared;
 pub mod value;
@@ -14,10 +15,7 @@ pub use crate::schema::{
     BaseFile, FilterNode, PropertyConfig, SortDirection, SortField, View, ViewType,
 };
 pub use anyhow::Result;
-pub use value::{
-    FileValue, LinkValue, TypeError, Value, ValueDate, ValueDateTime, ValueDuration, ValueError,
-    ValueResult,
-};
+pub use value::{FileValue, LinkValue, TypeError, Value, ValueDuration, ValueError, ValueResult};
 
 use std::path::Path;
 

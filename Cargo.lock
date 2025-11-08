@@ -795,8 +795,11 @@ dependencies = [
  "anyhow",
  "chrono",
  "nom",
+ "obsidian-core",
+ "obsidian-links",
  "serde",
  "serde_norway",
+ "thiserror",
 ]
 
 [[package]]

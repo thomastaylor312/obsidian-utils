@@ -1,17 +1,19 @@
 use std::cmp::Ordering;
 
-use chrono::{Duration, NaiveDate, TimeZone, Utc};
+use chrono::{Duration, TimeZone, Utc};
 
-use obsidian_bases::{TypeError, Value, ValueDate, ValueDateTime, ValueDuration, ValueError};
+use obsidian_bases::{
+    TypeError, Value, ValueDuration, ValueError,
+    value::{DateValue, ListValue, StringValue},
+};
 
-fn sample_date() -> ValueDate {
-    NaiveDate::from_ymd_opt(2025, 1, 1).expect("valid date")
-}
-
-fn sample_datetime() -> ValueDateTime {
-    Utc.with_ymd_and_hms(2025, 1, 1, 12, 30, 15)
-        .single()
-        .expect("valid datetime")
+fn sample_datetime() -> DateValue {
+    DateValue::new(
+        Utc.with_ymd_and_hms(2025, 1, 1, 12, 30, 15)
+            .single()
+            .expect("valid datetime")
+            .naive_local(),
+    )
 }
 
 fn assert_invalid_operation(
@@ -35,25 +37,25 @@ fn assert_invalid_unary(err: ValueError, op: &'static str, operand: &'static str
 
 #[test]
 fn arithmetic_on_numbers() {
-    let a = Value::Integer(5);
-    let b = Value::Integer(3);
+    let a = Value::from(5.0);
+    let b = Value::from(3.0);
 
     let sum = a.add(&b).expect("add numbers");
-    assert_eq!(sum, Value::Integer(8));
+    assert_eq!(sum, Value::from(8.0));
 
     let diff = a.sub(&b).expect("sub numbers");
-    assert_eq!(diff, Value::Integer(2));
+    assert_eq!(diff, Value::from(2.0));
 
     let product = a.mul(&b).expect("mul numbers");
-    assert_eq!(product, Value::Integer(15));
+    assert_eq!(product, Value::from(15.0));
 
     let quotient = a.div(&b).expect("div numbers");
-    assert_eq!(quotient, Value::Float(5.0 / 3.0));
+    assert_eq!(quotient, Value::from(5.0 / 3.0));
 
-    let quotient_int = Value::Integer(6)
-        .div(&Value::Integer(3))
+    let quotient_int = Value::from(6.0)
+        .div(&Value::from(3.0))
         .expect("div integers");
-    assert_eq!(quotient_int, Value::Integer(2));
+    assert_eq!(quotient_int, Value::from(2.0));
 }
 
 #[test]
@@ -65,33 +67,14 @@ fn concatenates_strings() {
 }
 
 #[test]
-fn date_duration_arithmetic() {
-    let date = sample_date();
-    let duration = ValueDuration::days(1);
-
-    let result = Value::Date(date)
-        .add(&Value::Duration(duration))
-        .expect("date + duration");
-
-    match result {
-        Value::Date(next) => assert_eq!(next, date.succ_opt().expect("next day")),
-        other => panic!("expected date result, got {other:?}"),
-    }
-
-    let date_diff = Value::Date(date.succ_opt().expect("next day"))
-        .sub(&Value::Date(date))
-        .expect("date difference (dates)");
-    match date_diff {
-        Value::Duration(actual) => assert_eq!(actual, Duration::days(1)),
-        other => panic!("expected duration, got {other:?}"),
-    }
-
+fn datetime_duration_arithmetic() {
     let diff = Value::DateTime(sample_datetime())
-        .sub(&Value::DateTime(
+        .sub(&Value::DateTime(DateValue::new(
             Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0)
                 .single()
-                .expect("midnight"),
-        ))
+                .expect("midnight")
+                .naive_local(),
+        )))
         .expect("date difference");
     match diff {
         Value::Duration(actual) => assert_eq!(
@@ -104,8 +87,8 @@ fn date_duration_arithmetic() {
 
 #[test]
 fn comparisons_work() {
-    let cmp = Value::Integer(2)
-        .compare(&Value::Float(10.0))
+    let cmp = Value::from(2.0)
+        .compare(&Value::from(10.0))
         .expect("compare numbers");
     assert_eq!(cmp, Ordering::Less);
 
@@ -117,45 +100,38 @@ fn comparisons_work() {
 
 #[test]
 fn truthiness_checks() {
-    assert!(!Value::Integer(0).is_truthy());
-    assert!(!Value::String(String::new()).is_truthy());
-    assert!(Value::Float(5.0).is_truthy());
+    assert!(!Value::from(0.0).is_truthy());
+    assert!(!Value::String(StringValue::default()).is_truthy());
+    assert!(Value::from(5.0).is_truthy());
     assert!(Value::Boolean(true).is_truthy());
 }
 
 #[test]
 fn list_contains() {
-    let list = Value::List(vec![Value::Integer(1), Value::Float(2.0)]);
-    assert!(
-        list.contains(&Value::Float(2.0))
-            .expect("contains succeeds")
-    );
-    assert!(
-        !list
-            .contains(&Value::Integer(3))
-            .expect("contains succeeds")
-    );
+    let list = Value::List(ListValue::new(vec![Value::from(1.0), Value::from(2.0)]));
+    assert!(list.contains(&Value::from(2.0)).expect("contains succeeds"));
+    assert!(!list.contains(&Value::from(3.0)).expect("contains succeeds"));
 }
 
 #[test]
 fn display_formatting() {
-    let date = sample_date();
-    let formatted = Value::Date(date).to_string();
-    assert_eq!(formatted, "2025-01-01");
+    let date = sample_datetime();
+    let formatted = Value::DateTime(date).to_string();
+    assert_eq!(formatted, "2025-01-01 12:30:15");
 
-    let integer_display = Value::Integer(42).to_string();
+    let integer_display = Value::from(42.0).to_string();
     assert_eq!(integer_display, "42");
 
-    let float_display = Value::Float(2.1200).to_string();
+    let float_display = Value::from(2.12).to_string();
     assert_eq!(float_display, "2.12");
 }
 
 #[test]
 fn mixed_numeric_addition() {
-    let result = Value::Float(2.5)
-        .add(&Value::Integer(2))
+    let result = Value::from(2.5)
+        .add(&Value::from(2.0))
         .expect("float + int");
-    assert_eq!(result, Value::Float(4.5));
+    assert_eq!(result, Value::from(4.5));
 }
 
 #[test]
@@ -171,14 +147,14 @@ fn arithmetic_errors_on_mismatched_types() {
     assert_invalid_operation(err, "sub", "boolean", "duration");
 
     let err = Value::String("foo".into())
-        .mul(&Value::Integer(2))
-        .expect_err("string * integer fails");
-    assert_invalid_operation(err, "mul", "string", "integer");
+        .mul(&Value::from(2.0))
+        .expect_err("string * number fails");
+    assert_invalid_operation(err, "mul", "string", "number");
 
-    let err = Value::Date(sample_date())
-        .div(&Value::Integer(2))
-        .expect_err("date / integer fails");
-    assert_invalid_operation(err, "div", "date", "integer");
+    let err = Value::DateTime(sample_datetime())
+        .div(&Value::from(2.0))
+        .expect_err("date / number fails");
+    assert_invalid_operation(err, "div", "datetime", "number");
 
     let err = Value::Duration(ValueDuration::days(1))
         .rem(&Value::String("foo".into()))
@@ -188,15 +164,15 @@ fn arithmetic_errors_on_mismatched_types() {
 
 #[test]
 fn division_and_remainder_by_zero_error() {
-    let err = Value::Integer(4)
-        .div(&Value::Integer(0))
+    let err = Value::from(4.0)
+        .div(&Value::from(0.0))
         .expect_err("division by zero fails");
-    assert_invalid_operation(err, "div", "integer", "integer");
+    assert_invalid_operation(err, "div", "number", "number");
 
-    let err = Value::Float(10.0)
-        .rem(&Value::Float(0.0))
+    let err = Value::from(10.0)
+        .rem(&Value::from(0.0))
         .expect_err("remainder by zero fails");
-    assert_invalid_operation(err, "mod", "float", "float");
+    assert_invalid_operation(err, "mod", "number", "number");
 }
 
 #[test]
@@ -209,16 +185,16 @@ fn comparison_errors_on_incompatible_types() {
 
 #[test]
 fn contains_errors_on_non_collection_values() {
-    let err = Value::Integer(2)
-        .contains(&Value::Integer(2))
-        .expect_err("contains on integer fails");
-    assert_invalid_operation(err, "contains", "integer", "integer");
+    let err = Value::from(2.0)
+        .contains(&Value::from(2.0))
+        .expect_err("contains on number fails");
+    assert_invalid_operation(err, "contains", "number", "number");
 }
 
 #[test]
 fn len_errors_on_unsupported_types() {
-    let err = Value::Integer(2).len().expect_err("len on integer fails");
-    assert_invalid_unary(err, "len", "integer");
+    let err = Value::from(2.0).len().expect_err("len on number fails");
+    assert_invalid_unary(err, "len", "number");
 }
 
 #[test]

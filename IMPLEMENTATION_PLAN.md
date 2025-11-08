@@ -443,157 +443,120 @@ impl Value {
 
 ## Stage 4: Core Operators and Functions (Subset)
 
-Before implementing the functions described in this stage, make sure to read `Functions.md` in its entirety and validate that the functions described there match the ones below. Ensure any implementations match the behavior described in that document 
-
 **Goal**: Implement the essential subset of operators and built-in functions.
 
 **Success Criteria**:
 - All operators work correctly
 - Core global functions implemented
-- Core methods on values implemented
+- Core methods on values implemented (via value type wrappers)
 - Function registry extensible for future additions
 
-**Core Subset to Implement**:
+**Implementation Architecture**:
 
-### Global Functions
-- `if(condition, trueResult, falseResult)` - Conditional
+The implementation differs from the original plan. Each value type is a wrapper struct with embedded `FunctionRegistry` and `FieldRegistry`:
+
+- `StringValue` - wraps `Rc<String>` + registries
+- `NumberValue` - wraps `f64` + registry
+- `ListValue` - wraps `Rc<Vec<Value>>` + registries
+- `DateValue` - wraps `Rc<NaiveDateTime>` + registries
+- `FileValue` - wraps `Rc<Inner>` + registries
+
+Each value type has `call(name, args)` and `field(name)` methods that delegate to its registries.
+
+### Global Functions Implemented
+- `if(condition, trueResult, falseResult?)` - Conditional
 - `today()` - Current date (no time)
 - `now()` - Current datetime
-- `date(string)` - Parse date string
+- `date(string)` - Parse date string (YYYY-MM-DD, ISO8601)
+- `duration(string)` - Parse duration string (1d, 2h30m, 1 week)
 - `list(element)` - Ensure value is a list
 - `number(value)` - Convert to number
 - `link(path, display?)` - Create link
+- `min(...numbers)` - Return smallest number
+- `max(...numbers)` - Return largest number
 
-### File Methods (on file.*)
-- `file.hasTag(...tags)` - Check if file has any tag
-- `file.hasLink(otherFile)` - Check if file links to another
-- `file.inFolder(folder)` - Check if in folder
-- `file.hasProperty(name)` - Check if property exists
-
-### String Methods
+### String Methods Implemented
 - `string.contains(substring)` - Contains check
 - `string.startsWith(prefix)` - Starts with check
 - `string.endsWith(suffix)` - Ends with check
 - `string.lower()` - Lowercase conversion
+- `string.upper()` - Uppercase conversion
+- `string.trim()` - Trim whitespace
 - `string.split(separator)` - Split into list
+- `string.slice(start, end?)` - Substring extraction (supports negative indices)
+- `string.replace(pattern, replacement)` - Replace all occurrences
+- `string.isEmpty()` - Empty check
+- `string.containsAll(...substrings)` - Contains all check
+- `string.containsAny(...substrings)` - Contains any check
 - `string.length` - Length field
 
-### Numeric Methods
+### Numeric Methods Implemented
 - `number.toFixed(precision)` - Format with decimals
 - `number.round(digits?)` - Round to integer or decimal places
 - `number.abs()` - Absolute value
+- `number.ceil()` - Round up
+- `number.floor()` - Round down
+- `number.isEmpty()` - Check if zero/NaN
 
-### List Methods
+### List Methods Implemented
 - `list.contains(value)` - Contains check
-- `list.length` - Length field
 - `list.join(separator)` - Join to string
+- `list.isEmpty()` - Empty check
+- `list.containsAll(...values)` - Contains all check
+- `list.containsAny(...values)` - Contains any check
+- `list.reverse()` - Reverse list
+- `list.sort()` - Sort list
+- `list.flat()` - Flatten one level
+- `list.unique()` - Remove duplicates
+- `list.slice(start, end?)` - Sublist extraction (supports negative indices)
+- `list.first()` - First element or null
+- `list.last()` - Last element or null
+- `list.length` - Length field
 
-### Date Methods
-- `date.format(formatString)` - Format with moment.js style
+### Date Methods Implemented
+- `date.format(formatString)` - Format with moment.js style (via moment_format.rs converter)
 - `date.date()` - Remove time portion
+- `date.time()` - Get time as HH:mm:ss string
+- `date.isEmpty()` - Always false for dates
 - `date.year`, `date.month`, `date.day` - Date fields
-- `date.hour`, `date.minute`, `date.second` - Time fields
+- `date.hour`, `date.minute`, `date.second`, `date.millisecond` - Time fields
 
-**Implementation Details**:
+### File Methods Implemented
+- `file.hasTag(...tags)` - Check if file has any tag
+- `file.hasLink(target)` - Check if file links to target
+- `file.inFolder(folder)` - Check if in folder
+- `file.hasProperty(name)` - Check if property exists in frontmatter
+- `file.asLink(display?)` - Convert to link value
+- `file.name`, `file.path`, `file.ext`, `file.folder` - Path fields
+- `file.size` - Size in bytes
+- `file.ctime`, `file.mtime` - Datetime fields
+- `file.tags`, `file.links` - List fields
 
-### Function Registry (functions.rs)
+### Moment.js Format Converter
+Implemented `moment_format.rs` with nom-based parser to convert moment.js format strings to chrono format strings. Supports tokens:
+- Year: YYYY, YY
+- Month: MMMM, MMM, MM, M
+- Day: DD, D, DDD (day of year)
+- Weekday: dddd, ddd, dd, d
+- Hour: HH, H (24h), hh, h (12h)
+- Minute: mm, m
+- Second: ss, s
+- Milliseconds: SSS
+- AM/PM: A, a
+- Timezone: Z, ZZ
+- Escaped text: [literal]
 
-```rust
-pub type FunctionImpl = fn(args: Vec<Value>) -> Result<Value>;
+**Files Created/Modified**:
+- `crates/bases/src/value/number.rs` - NumberValue wrapper
+- `crates/bases/src/value/string.rs` - Extended string methods
+- `crates/bases/src/value/list.rs` - Extended list methods
+- `crates/bases/src/value/date.rs` - Extended date methods
+- `crates/bases/src/value/file.rs` - Extended file methods/fields
+- `crates/bases/src/value/moment_format.rs` - Moment.js format converter
+- `crates/bases/src/functions.rs` - Global function implementations
+- `crates/bases/tests/function_tests.rs` - Comprehensive tests (59 tests)
 
-pub struct FunctionRegistry {
-    functions: HashMap<String, FunctionImpl>,
-}
-
-impl FunctionRegistry {
-    pub fn new() -> Self {
-        let mut registry = Self { functions: HashMap::new() };
-
-        // Register global functions
-        registry.register("if", functions::if_fn);
-        registry.register("today", functions::today_fn);
-        registry.register("now", functions::now_fn);
-        // ... more registrations
-
-        registry
-    }
-
-    pub fn call(&self, name: &str, args: Vec<Value>) -> Result<Value> { ... }
-}
-
-// Implement individual functions
-mod functions {
-    pub fn if_fn(args: Vec<Value>) -> Result<Value> {
-        match args.as_slice() {
-            [condition, true_result, false_result] => {
-                if condition.is_truthy() {
-                    Ok(true_result.clone())
-                } else {
-                    Ok(false_result.clone())
-                }
-            }
-            [condition, true_result] => {
-                if condition.is_truthy() {
-                    Ok(true_result.clone())
-                } else {
-                    Ok(Value::Null)
-                }
-            }
-            _ => Err(Error::InvalidArgumentCount("if", 2..=3, args.len())),
-        }
-    }
-
-    // ... more function implementations
-}
-```
-
-### Method Dispatch (methods.rs)
-
-```rust
-impl Value {
-    pub fn call_method(&self, method: &str, args: Vec<Value>) -> Result<Value> {
-        match (self, method) {
-            // String methods
-            (Value::String(s), "contains") => {
-                let substring = args.get(0).ok_or(...)?.as_string()?;
-                Ok(Value::Boolean(s.contains(&substring)))
-            }
-            (Value::String(s), "lower") => {
-                Ok(Value::String(s.to_lowercase()))
-            }
-
-            // Numeric methods
-            (Value::Float(n), "toFixed") => {
-                let precision = args.get(0).ok_or(...)?.as_number()? as usize;
-                Ok(Value::String(format!("{:.prec$}", n, prec = precision)))
-            }
-
-            // List methods
-            (Value::List(items), "contains") => {
-                let value = args.get(0).ok_or(...)?;
-                Ok(Value::Boolean(items.iter().any(|item| item.equals(value))))
-            }
-
-            _ => Err(Error::UnknownMethod(self.type_name(), method)),
-        }
-    }
-}
-```
-
-**Tests**:
-- Global functions: `if(true, "yes", "no")` = `"yes"`
-- File methods: `file.hasTag("book")` on file with `#book` tag = `true`
-- String methods: `"hello".contains("ell")` = `true`
-- Numeric methods: `(3.14159).toFixed(2)` = `"3.14"`
-- List methods: `[1, 2, 3].contains(2)` = `true`
-- Date functions: `now().format("YYYY-MM-DD")` produces valid date string
-
-**Files to Create**:
-- `crates/bases/src/functions.rs` - Function registry and implementations
-- `crates/bases/src/methods.rs` - Method dispatch (or integrate into value.rs)
-- `crates/bases/tests/function_tests.rs` - Function tests
-
-**Status**: Not Started
+**Status**: Completed ✅
 
 ---
 
@@ -605,60 +568,62 @@ impl Value {
 - Can evaluate parsed expressions against a file context
 - Recursive filter nodes (and/or/not) work correctly
 - Property resolution works (note.*, file.*, formula.*)
-- Filter evaluation is lazy where possible
+- Method calls dispatch to value type's `call()` method
+- Field access dispatches to value type's `field()` method
 - Clear errors for invalid expressions
 - All evaluation works directly from `PreparedBase` / `PreparedFilter` without re-parsing strings
 
 **Implementation Details**:
 
+### Method Dispatch Pattern (Updated)
+
+The evaluator delegates method/field dispatch to the value types themselves:
+
+```rust
+fn eval_method_call(&self, object: Value, method: &str, args: &[Value]) -> Result<Value> {
+    match object {
+        Value::String(s) => s.call(method, args).map_err(|e| ...),
+        Value::Number(n) => n.call(method, args).map_err(|e| ...),
+        Value::List(l) => l.call(method, args).map_err(|e| ...),
+        Value::DateTime(d) => d.call(method, args).map_err(|e| ...),
+        Value::File(f) => f.call(method, args).map_err(|e| ...),
+        _ => Err(Error::MethodNotSupported(object.type_name(), method)),
+    }
+}
+
+fn eval_field_access(&self, object: Value, field: &str) -> Result<Value> {
+    match object {
+        Value::String(s) => s.field(field).ok_or(...),
+        Value::List(l) => l.field(field).ok_or(...),
+        Value::DateTime(d) => d.field(field).ok_or(...),
+        Value::File(f) => f.field(field).ok_or(...),
+        Value::Object(o) => o.get(field).cloned().ok_or(...),
+        _ => Err(Error::FieldNotSupported(object.type_name(), field)),
+    }
+}
+```
+
 ### Evaluation Context (context.rs)
 
 ```rust
 pub struct EvalContext<'a> {
-    // Current file being evaluated
-    pub file: &'a ParsedFile,
-    pub frontmatter: &'a Option<Frontmatter>,
-
-    // Vault context for cross-file operations
-    pub vault: &'a VaultContext,
+    // Current file being evaluated (as FileValue with methods/fields)
+    pub file: &'a FileValue,
 
     // Formula values for this file (computed)
     pub formulas: HashMap<String, Value>,
 
-    // Prepared configuration (expressions already parsed)
-    pub base: &'a PreparedBase,
+    // Reference to global function registry
+    pub globals: &'a FunctionRegistry,
 }
 
 impl<'a> EvalContext<'a> {
     pub fn resolve_property(&self, prop: &PropertyRef) -> Result<Value> {
         match prop.namespace {
             PropertyNamespace::Note => self.resolve_note_property(&prop.path),
-            PropertyNamespace::File => self.resolve_file_property(&prop.path),
-            PropertyNamespace::Formula => self.resolve_formula(&prop.path[0]),
+            PropertyNamespace::File => self.file.field(&prop.path[0]).ok_or(...),
+            PropertyNamespace::Formula => self.formulas.get(&prop.path[0]).cloned().ok_or(...),
             PropertyNamespace::This => todo!("Handle 'this' context"),
-        }
-    }
-
-    fn resolve_note_property(&self, path: &[String]) -> Result<Value> {
-        // Look up in frontmatter
-        if let Some(fm) = self.frontmatter {
-            // Access nested path in frontmatter YAML
-            // ... implementation
-        }
-        Ok(Value::Null)
-    }
-
-    fn resolve_file_property(&self, path: &[String]) -> Result<Value> {
-        match path.get(0).map(|s| s.as_str()) {
-            Some("name") => Ok(Value::String(self.file.name().to_string())),
-            Some("path") => Ok(Value::String(self.file.path().to_string_lossy().to_string())),
-            Some("ext") => Ok(Value::String(self.file.extension())),
-            Some("size") => Ok(Value::Integer(self.file.size() as i64)),
-            Some("mtime") => Ok(Value::Date(DateTime::from_timestamp(self.file.mtime()))),
-            Some("ctime") => Ok(Value::Date(DateTime::from_timestamp(self.file.ctime()))),
-            Some("tags") => Ok(self.get_file_tags()),
-            // ... more file properties
-            _ => Err(Error::UnknownProperty("file", path)),
         }
     }
 }
@@ -672,23 +637,25 @@ pub struct Evaluator {
 }
 
 impl Evaluator {
-    pub fn new() -> Self { ... }
+    pub fn new() -> Self {
+        Self { functions: FunctionRegistry::global() }
+    }
 
     pub fn eval_expr(&self, expr: &Expr, ctx: &EvalContext) -> Result<Value> {
         match expr {
-            Expr::String(s) => Ok(Value::String(s.clone())),
-            Expr::Float(n) => Ok(Value::Float(*n)),
-            Expr::Integer(n) => Ok(Value::Integer(*n)),
+            Expr::String(s) => Ok(Value::String(StringValue::new(s.clone()))),
+            Expr::Float(n) => Ok(Value::Number(NumberValue::new(*n))),
             Expr::Boolean(b) => Ok(Value::Boolean(*b)),
             Expr::Null => Ok(Value::Null),
 
             Expr::Property(prop) => ctx.resolve_property(prop),
 
             Expr::FunctionCall { name, args } => {
-                let arg_values = args.iter()
+                let arg_values: Vec<Value> = args.iter()
                     .map(|arg| self.eval_expr(arg, ctx))
                     .collect::<Result<Vec<_>>>()?;
-                self.functions.call(name, arg_values)
+                self.functions.call(name, &arg_values)
+                    .map_err(|e| e.into())
             }
 
             Expr::BinaryOp { op, left, right } => {
@@ -704,70 +671,67 @@ impl Evaluator {
 
             Expr::MethodCall { object, method, args } => {
                 let obj_val = self.eval_expr(object, ctx)?;
-                let arg_values = args.iter()
+                let arg_values: Vec<Value> = args.iter()
                     .map(|arg| self.eval_expr(arg, ctx))
                     .collect::<Result<Vec<_>>>()?;
-                obj_val.call_method(method, arg_values)
+                self.eval_method_call(obj_val, method, &arg_values)
             }
 
             Expr::MemberAccess { object, member } => {
                 let obj_val = self.eval_expr(object, ctx)?;
-                obj_val.get_field(member)
+                self.eval_field_access(obj_val, member)
             }
         }
     }
 
-pub fn eval_filter(&self, filter: &PreparedFilter, ctx: &EvalContext) -> Result<bool> {
-    match filter {
-        PreparedFilter::And(children) => {
-            for child in children {
-                if !self.eval_filter(child, ctx)? {
-                    return Ok(false);  // Short-circuit
+    pub fn eval_filter(&self, filter: &PreparedFilter, ctx: &EvalContext) -> Result<bool> {
+        match filter {
+            PreparedFilter::And(children) => {
+                for child in children {
+                    if !self.eval_filter(child, ctx)? {
+                        return Ok(false);  // Short-circuit
+                    }
                 }
+                Ok(true)
             }
-            Ok(true)
-        }
-
-        PreparedFilter::Or(children) => {
-            for child in children {
-                if self.eval_filter(child, ctx)? {
-                    return Ok(true);  // Short-circuit
+            PreparedFilter::Or(children) => {
+                for child in children {
+                    if self.eval_filter(child, ctx)? {
+                        return Ok(true);  // Short-circuit
+                    }
                 }
+                Ok(false)
             }
-            Ok(false)
-        }
-
-        PreparedFilter::Not(children) => {
-            // All must be false
-            for child in children {
-                if self.eval_filter(child, ctx)? {
-                    return Ok(false);
+            PreparedFilter::Not(children) => {
+                for child in children {
+                    if self.eval_filter(child, ctx)? {
+                        return Ok(false);
+                    }
                 }
+                Ok(true)
             }
-            Ok(true)
-        }
-
-        PreparedFilter::Expr(expr) => {
-            let result = self.eval_expr(expr, ctx)?;
-            Ok(result.is_truthy())
+            PreparedFilter::Expr(expr) => {
+                let result = self.eval_expr(expr, ctx)?;
+                Ok(result.is_truthy())
+            }
         }
     }
-}
 }
 ```
 
 **Tests**:
 - Simple filters: `file.ext == "md"` on markdown file = `true`
 - Complex filters: `(status != "done" && price > 10) || priority == "high"`
-- Function calls: `file.hasTag("book")` on file with tag
+- Method calls: `file.hasTag("book")` dispatches to FileValue.call()
+- Field access: `file.name` dispatches to FileValue.field()
+- String methods: `"hello".contains("ell")` dispatches to StringValue.call()
+- Date fields: `date.year` dispatches to DateValue.field()
 - Nested filters: `and: [or: [...], not: [...]]`
-- Property access: `note.title`, `file.mtime`, `formula.computed`
-- Error handling: undefined property, type mismatch, invalid function
-- Integration: confirm evaluator consumes `PreparedFilter` trees directly (no runtime parsing)
+- Error handling: unknown method, unknown field, type mismatch
 
 **Files to Create**:
-- `crates/bases/src/context.rs` - Evaluation context (holds `PreparedBase`)
-- `crates/bases/src/evaluator.rs` - Expression evaluator using `PreparedFilter`
+- `crates/bases/src/context.rs` - Evaluation context
+- `crates/bases/src/evaluator.rs` - Expression evaluator
 - `crates/bases/tests/evaluator_tests.rs` - Evaluation tests
 
 **Status**: Not Started
@@ -1111,6 +1075,7 @@ impl Formatter for CborFormatter {
 use clap::Parser;
 use obsidian_core::{reader, parser as md_parser, frontmatter};
 use obsidian_bases::*;
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -1151,7 +1116,7 @@ fn main() -> anyhow::Result<()> {
     let file_entries = reader_opts.read_files()
         .context("Failed to read vault files")?;
 
-    // 3. Parse markdown and extract frontmatter
+    // 3. Parse markdown, extract frontmatter, links, and tags
     let arena = comrak::Arena::new();
     let parsed_files: Vec<_> = md_parser::parse_files(&file_entries, &arena).collect();
 
@@ -1159,7 +1124,33 @@ fn main() -> anyhow::Result<()> {
         .filter_map(|(file, fm)| Some((file, fm?)))
         .collect();
 
-    // 4. Select view
+    // 4. Build FileValue instances with all metadata
+    let file_values: Vec<FileValue> = files_with_frontmatter
+        .into_iter()
+        .map(|(parsed_file, frontmatter)| {
+            // Extract links using obsidian-links
+            let links = obsidian_links::FileLinks::from_content(&parsed_file.content);
+
+            // Extract tags from frontmatter and inline
+            let mut tags = BTreeSet::new();
+            if let Some(fm_tags) = &frontmatter.tags {
+                tags.extend(fm_tags.iter().cloned());
+            }
+            // TODO: Also extract inline #tags from content
+
+            let metadata = std::fs::metadata(&parsed_file.path).ok();
+
+            FileValue::new(
+                parsed_file.path,
+                metadata.unwrap_or_else(|| /* default metadata */),
+                links,
+                tags,
+                Some(frontmatter),
+            )
+        })
+        .collect();
+
+    // 5. Select view
     let view = if let Some(view_name) = &cli.view {
         base.views.iter()
             .find(|v| v.name.as_ref() == Some(view_name))
@@ -1169,12 +1160,12 @@ fn main() -> anyhow::Result<()> {
             .ok_or_else(|| anyhow::anyhow!("No views defined in base file"))?
     };
 
-    // 5. Process view with prepared structures
+    // 6. Process view with prepared structures and FileValue instances
     let processor = ViewProcessor::new();
-    let result = processor.process_view(view, files_with_frontmatter, &base)
+    let result = processor.process_view(view, file_values, &base)
         .context("Failed to process view")?;
 
-    // 6. Format and output
+    // 7. Format and output
     let formatter: Box<dyn Formatter> = match cli.output {
         OutputFormat::Table => Box::new(TableFormatter),
         OutputFormat::Json => Box::new(JsonFormatter),
