@@ -443,7 +443,9 @@ impl Value {
 
 ## Stage 4: Core Operators and Functions (Subset)
 
-Before implementing the functions described in this stage, make sure to read `Functions.md` in its entirety and validate that the functions described there match the ones below. Ensure any implementations match the behavior described in that document 
+Before implementing the functions described in this stage, make sure to read `Functions.md`
+in its entirety and validate that the functions described there match the ones below. Ensure
+any implementations match the behavior described in that document 
 
 **Goal**: Implement the essential subset of operators and built-in functions.
 
@@ -499,10 +501,8 @@ Before implementing the functions described in this stage, make sure to read `Fu
 ### Function Registry (functions.rs)
 
 ```rust
-pub type FunctionImpl = fn(args: Vec<Value>) -> Result<Value>;
-
 pub struct FunctionRegistry {
-    functions: HashMap<String, FunctionImpl>,
+    functions: HashMap<String, Box<dyn Fn(Vec<Value>) -> anyhow::Result<Value>>>,
 }
 
 impl FunctionRegistry {
