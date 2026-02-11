@@ -1,3 +1,5 @@
+DEPRECATED: Obsidian released [its new CLI](https://help.obsidian.md/cli), so this project is no longer necessary
+
 # Obsidian Utils
 
 This passion project is meant to be a collection of Unix style CLI utilities to work with
