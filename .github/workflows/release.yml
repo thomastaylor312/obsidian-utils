@@ -50,7 +50,7 @@ jobs:
           tar -C dist -czf "obsidian-utils-linux-${ARCH}.tar.gz" obsidian-links obsidian-tags
         shell: bash
       - name: Upload artifact
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: obsidian-utils-linux-${{ matrix.arch }}
           path: obsidian-utils-linux-${{ matrix.arch }}.tar.gz
@@ -79,7 +79,7 @@ jobs:
           tar -C dist -czf obsidian-utils-macos-arm64.tar.gz obsidian-links obsidian-tags
         shell: bash
       - name: Upload artifact
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: obsidian-utils-macos-arm64
           path: obsidian-utils-macos-arm64.tar.gz
@@ -108,7 +108,7 @@ jobs:
           Compress-Archive -Path dist\* -DestinationPath obsidian-utils-windows-x86_64.zip
         shell: pwsh
       - name: Upload artifact
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: obsidian-utils-windows-x86_64
           path: obsidian-utils-windows-x86_64.zip
